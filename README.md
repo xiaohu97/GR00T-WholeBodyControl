@@ -318,6 +318,174 @@ bash deploy.sh sim
 - `gear_sonic_deploy` 可以运行在宿主机，也可以放在 Docker 容器中
 - 如果使用 Docker，官方建议 Terminal 1 仍然放在宿主机，Terminal 2 再放进容器
 
+## PICO VR 遥操作
+
+### 1. 硬件与前置条件
+
+PICO 全身遥操作通常需要：
+
+- `PICO 4 / PICO 4 Pro` 头显
+- 两个 PICO 手柄
+- 两个 PICO 脚部运动追踪器
+- 低延迟、稳定的同一局域网 Wi-Fi
+
+开始之前，建议你先确认两件事：
+
+- 已经跑通上面的 **MuJoCo sim2sim 测试**
+- 已经安装并能启动 **XRoboToolkit PC Service**
+
+在 `x86_64 + Ubuntu 22.04` 上，官方 PC 服务包通常是：
+
+- `XRoboToolkit_PC_Service_1.0.0_ubuntu_22.04_amd64.deb`
+
+安装后可以从系统应用菜单启动 `XRoboToolkit-PC-Service`，也可以直接运行：
+
+```bash
+/opt/apps/roboticsservice/run3D.sh
+```
+
+### 2. 在 PICO 头显中安装 XRoboToolkit App
+
+在头显内完成以下步骤：
+
+1. 先完成 PICO 的首次开机配置，并连接 Wi-Fi
+2. 打开浏览器，访问 <https://github.com/XR-Robotics>
+3. 开启开发者模式
+4. 在头显里下载 `XRoboToolkit-PICO-1.1.1.apk`
+5. 安装后，应用会出现在 Unknown / 未知来源 应用列表中
+
+### 3. 配置脚部追踪器
+
+1. 左右脚踝各绑一个追踪器，指示灯朝上
+2. 尽量穿紧身裤或贴身运动裤，避免宽松裤腿遮挡追踪器
+3. 在 PICO 开发者设置中关闭 `Safeguard`
+4. 进入运动追踪器配对界面，先取消已有配对，再重新配对
+5. 长按追踪器顶部按钮约 `6` 秒进入配对模式
+
+校准时建议：
+
+1. 先戴好头显
+2. 按蓝色 `Calibrate`
+3. 第一步站直、双臂自然下垂
+4. 第二步低头看向脚部追踪器，让头显识别到它们
+
+### 4. 安装 PICO Teleop Python 环境
+
+在仓库根目录运行：
+
+```bash
+bash install_scripts/install_pico.sh
+```
+
+这个脚本会创建 `.venv_teleop`，其中包含：
+
+- `gear_sonic[teleop]`
+- `gear_sonic[sim]`
+- `XRoboToolkit SDK`
+- `unitree_sdk2_python`
+
+激活方式：
+
+```bash
+source .venv_teleop/bin/activate
+```
+
+### 5. 连接 PICO 与 PC Service
+
+1. 确保电脑和 PICO 在同一个 Wi-Fi 下
+2. 在电脑上查本机局域网 IP，例如：
+
+```bash
+hostname -I
+```
+
+3. 打开头显中的 `XRoboToolkit`
+4. 在 `PC Service` 一栏输入电脑 IP
+5. 如果连接正常，状态会显示 `WORKING`
+
+建议在 XRoboToolkit 中勾选：
+
+- `Tracking` 下的 `Head`
+- `Tracking` 下的 `Controller`
+- `Data/Control` 下的 `Send`
+- `Pico Motion Tracker` 下的 `Full body`
+
+### 6. 在仿真中运行 PICO 遥操作
+
+先确保 `XRoboToolkit PC Service` 已经在电脑上运行，然后开启三个终端。
+
+**Terminal 1：MuJoCo 仿真器**
+
+```bash
+cd /path/to/GR00T-WholeBodyControl
+source .venv_teleop/bin/activate
+python gear_sonic/scripts/run_sim_loop.py
+```
+
+**Terminal 2：C++ 部署侧**
+
+```bash
+cd /path/to/GR00T-WholeBodyControl/gear_sonic_deploy
+source ~/.bashrc
+source scripts/setup_env.sh
+bash deploy.sh sim --input-type zmq_manager
+```
+
+等待终端里出现 `Init done`。
+
+**Terminal 3：PICO 数据流与可视化**
+
+```bash
+cd /path/to/GR00T-WholeBodyControl
+source .venv_teleop/bin/activate
+python gear_sonic/scripts/pico_manager_thread_server.py --manager \
+    --vis_vr3pt --vis_smpl
+```
+
+如果只想跑最简模式，也可以：
+
+```bash
+python gear_sonic/scripts/pico_manager_thread_server.py --manager
+```
+
+### 7. 第一次遥操作怎么做
+
+建议按下面顺序来：
+
+1. 先站成校准姿势：站直、双脚并拢、上臂贴身下垂、前臂向前弯曲约 `90°`
+2. 在 PICO 手柄上同时按 `A+B+X+Y`，启动策略并执行首次完整校准
+3. 观察机器人当前姿态，把自己的手臂姿态尽量对齐
+4. 同时按 `A+X`，切换到 `POSE` 全身遥操作模式
+5. 这时你的全身动作就会映射到机器人
+6. 再按一次 `A+X`，可以退回 `PLANNER` 模式
+7. 结束或急停时，再按一次 `A+B+X+Y`
+
+### 8. 常用按键
+
+- `A+B+X+Y`：启动 / 停止策略；第一次按下时会触发完整校准
+- `A+X`：在 `PLANNER` 和 `POSE` 间切换
+- `B+Y`：切到 `PLANNER_FROZEN_UPPER`
+- 左摇杆按下：在 Planner 模式与 `VR_3PT` 之间切换，并触发手腕校准
+- 左摇杆：控制移动方向
+- 右摇杆横向：控制航向
+- `A+B`：切换到下一个 locomotion 模式
+- `X+Y`：切换到上一个 locomotion 模式
+- 手柄扳机：控制对应手部抓取
+
+### 9. 使用建议与安全提示
+
+- 真机前一定先在 MuJoCo 里练熟整套流程
+- 切到 `POSE` 或 `VR_3PT` 之前，先让自己的姿态尽量接近机器人当前姿态
+- 一定要穿不遮挡脚踝追踪器的裤子
+- 网络延迟越低越好，PICO 和电脑最好在同一局域网下
+- 保持至少约 `3 m` 安全区域，并始终有人在键盘旁准备按 `O`
+
+如果只是做仿真练习，这条命令链路通常最关键：
+
+- Terminal 1：`run_sim_loop.py`
+- Terminal 2：`bash deploy.sh sim --input-type zmq_manager`
+- Terminal 3：`pico_manager_thread_server.py --manager`
+
 ## 常见问题
 
 ### 1. `uv installation succeeded but binary not found on PATH`
@@ -337,10 +505,11 @@ ln -sf "$HOME/snap/code/current/.local/bin/uv" "$HOME/.local/bin/uv"
 ln -sf "$HOME/snap/code/current/.local/bin/uvx" "$HOME/.local/bin/uvx"
 ```
 
-然后重新运行：
+然后重新运行对应脚本，例如：
 
 ```bash
 bash install_scripts/install_mujoco_sim.sh
+bash install_scripts/install_pico.sh
 ```
 
 ### 2. `/usr/bin/ld: ... libunitree_sdk2.a:1: syntax error`
@@ -377,6 +546,26 @@ just build
 - PICO VR：使用 `.venv_teleop`
 
 除非你明确要走 RoboStack / ROS 的那条 conda 路线，否则主部署流程不建议强行塞进 conda。
+
+### 4. 如何检查 XRoboToolkit PC Service 是否已经启动
+
+如果已经安装了 PC Service，可以这样检查：
+
+```bash
+pgrep -a -f RoboticsServiceProcess
+```
+
+如果服务已经起来，通常会看到类似：
+
+```text
+/opt/apps/roboticsservice/RoboticsServiceProcess
+```
+
+也可以直接手动启动：
+
+```bash
+/opt/apps/roboticsservice/run3D.sh
+```
 
 ## 文档
 

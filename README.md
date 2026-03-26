@@ -429,6 +429,9 @@ cd /path/to/GR00T-WholeBodyControl/gear_sonic_deploy
 source ~/.bashrc
 source scripts/setup_env.sh
 bash deploy.sh sim --input-type zmq_manager
+
+ ./deploy.sh enp5s0 --input-type zmq_manager real 
+
 ```
 
 等待终端里出现 `Init done`。

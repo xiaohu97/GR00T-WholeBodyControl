@@ -185,6 +185,9 @@ external_dependencies/doc/
 # XRoboToolkit pybind (cloned locally on aarch64 by install_pico.sh)
 external_dependencies/XRoboToolkit-PC-Service-Pybind/
 
+# SOMA Retargeter local clone
+external_dependencies/soma-retargeter/
+
 # UV
 uv.lock
 

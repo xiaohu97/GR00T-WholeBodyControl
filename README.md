@@ -140,6 +140,7 @@ SONIC 还包含一个实时运动学规划器，可通过键盘或手柄切换�
 - `gear_sonic`：Python 侧仿真与遥操作栈
 - `download_from_hf.py`：从 Hugging Face 拉取公开模型
 - `install_scripts/`：MuJoCo、PICO、ROS 等安装脚本
+- `external_dependencies/`：本地外部依赖目录，可放置 XRoboToolkit、Unitree SDK、SOMA Retargeter 等第三方工具
 
 ## 快速开始
 
@@ -429,12 +430,15 @@ cd /path/to/GR00T-WholeBodyControl/gear_sonic_deploy
 source ~/.bashrc
 source scripts/setup_env.sh
 bash deploy.sh sim --input-type zmq_manager
-
- ./deploy.sh enp5s0 --input-type zmq_manager real 
-
 ```
 
 等待终端里出现 `Init done`。
+
+如果要连接真机，请把 `sim` 换成机器人网卡名，例如：
+
+```bash
+bash deploy.sh enp5s0 --input-type zmq_manager real
+```
 
 **Terminal 3：PICO 数据流与可视化**
 
@@ -488,6 +492,68 @@ python gear_sonic/scripts/pico_manager_thread_server.py --manager
 - Terminal 1：`run_sim_loop.py`
 - Terminal 2：`bash deploy.sh sim --input-type zmq_manager`
 - Terminal 3：`pico_manager_thread_server.py --manager`
+
+## SOMA BVH 重定向工具
+
+如果需要把 SOMA/BONES-SEED 格式的 BVH 动作离线重定向到 Unitree G1 CSV，可以在 `external_dependencies/` 下单独配置 [NVIDIA SOMA Retargeter](https://github.com/NVIDIA/soma-retargeter)。它使用 Python 3.12、Newton 和 NVIDIA Warp，依赖环境与本仓库主部署环境相互独立。
+
+### 1. 安装 SOMA Retargeter
+
+```bash
+cd /path/to/GR00T-WholeBodyControl
+git lfs install
+git clone https://github.com/NVIDIA/soma-retargeter.git external_dependencies/soma-retargeter
+cd external_dependencies/soma-retargeter
+uv sync
+```
+
+建议环境：
+
+- Python：`3.12`，`uv sync` 会按 SOMA 项目的 `.python-version` 自动准备
+- GPU：NVIDIA GPU
+- Driver：`545+`
+- Git LFS：用于拉取示例 BVH/CSV 资源
+
+如果已经存在 `external_dependencies/soma-retargeter`，通常只需要进入该目录运行：
+
+```bash
+uv sync
+```
+
+### 2. 验证安装
+
+```bash
+cd /path/to/GR00T-WholeBodyControl/external_dependencies/soma-retargeter
+uv run python -c "import soma_retargeter, warp, newton; print(soma_retargeter.__version__)"
+```
+
+如果 Warp 能识别到 GPU，并打印 SOMA 版本号，说明环境基本可用。
+
+### 3. BVH 转 G1 CSV
+
+默认配置会读取：
+
+- 输入：`assets/motions/bvh`
+- 输出：`assets/motions/test-export`
+- 源格式：`soma`
+- 目标机器人：`unitree_g1`
+
+运行：
+
+```bash
+cd /path/to/GR00T-WholeBodyControl/external_dependencies/soma-retargeter
+uv run python ./app/bvh_to_csv_converter.py \
+    --config ./assets/default_bvh_to_csv_converter_config.json \
+    --viewer null
+```
+
+如果需要打开可视化窗口，可以把 `--viewer null` 改成：
+
+```bash
+--viewer gl
+```
+
+注意：SOMA Retargeter 的输入是 SOMA skeleton BVH，不是 `pico_manager_thread_server.py --record_dir` 直接保存的 `.npz`。当前 PICO 记录以人体 SMPL/VR 目标数据为主；如果要把 PICO 录制数据接到 SOMA，还需要额外实现 `PICO/SMPL -> SOMA BVH` 的导出器。
 
 ## 常见问题
 

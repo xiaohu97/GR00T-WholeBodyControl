@@ -155,6 +155,7 @@ cython_debug/
 
 # log
 outputs/
+pico_records/
 
 # Ruff stuff:
 .ruff_cache/

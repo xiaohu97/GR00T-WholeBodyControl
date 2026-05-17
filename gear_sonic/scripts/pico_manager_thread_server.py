@@ -557,6 +557,800 @@ class YawAccumulator:
         return self.heading
 
 
+VALID_RECORD_FORMATS = {"npz", "soma_bvh", "both"}
+SOMA_BVH_TEMPLATE_REL_PATH = os.path.join(
+    "external_dependencies",
+    "soma-retargeter",
+    "assets",
+    "motions",
+    "bvh",
+    "Neutral_walk_forward_002__A057.bvh",
+)
+SOMA_BVH_ZERO_POSE_REL_PATH = os.path.join(
+    "external_dependencies",
+    "soma-retargeter",
+    "soma_retargeter",
+    "configs",
+    "soma",
+    "soma_zero_frame0.bvh",
+)
+
+# smpl_pose is pose_aa[1:22]. This order matches
+# SMPLH_JOINT_NAMES[1:22] in gear_sonic/trl/utils/smplx/body_model/utils.py.
+SMPL_BODY_POSE_NAMES = (
+    "left_hip",
+    "right_hip",
+    "spine1",
+    "left_knee",
+    "right_knee",
+    "spine2",
+    "left_ankle",
+    "right_ankle",
+    "spine3",
+    "left_foot",
+    "right_foot",
+    "neck",
+    "left_collar",
+    "right_collar",
+    "head",
+    "left_shoulder",
+    "right_shoulder",
+    "left_elbow",
+    "right_elbow",
+    "left_wrist",
+    "right_wrist",
+)
+SMPL_NAME_TO_BODY_POSE_IDX = {
+    name: idx for idx, name in enumerate(SMPL_BODY_POSE_NAMES)
+}
+SMPL_BODY_POSE_TO_SOMA_JOINT = {
+    "left_hip": "LeftLeg",
+    "right_hip": "RightLeg",
+    "spine1": "Spine1",
+    "left_knee": "LeftShin",
+    "right_knee": "RightShin",
+    "spine2": "Spine2",
+    "left_ankle": "LeftFoot",
+    "right_ankle": "RightFoot",
+    "spine3": "Chest",
+    "left_foot": "LeftToeBase",
+    "right_foot": "RightToeBase",
+    "neck": "Neck1",
+    "left_collar": "LeftShoulder",
+    "right_collar": "RightShoulder",
+    "head": "Head",
+    "left_shoulder": "LeftArm",
+    "right_shoulder": "RightArm",
+    "left_elbow": "LeftForeArm",
+    "right_elbow": "RightForeArm",
+    "left_wrist": "LeftHand",
+    "right_wrist": "RightHand",
+}
+SMPL_POSE_TO_SOMA_JOINTS = {
+    soma_joint: SMPL_NAME_TO_BODY_POSE_IDX[smpl_name]
+    for smpl_name, soma_joint in SMPL_BODY_POSE_TO_SOMA_JOINT.items()
+}
+SMPL_FULL_JOINT_IDX = {
+    "pelvis": 0,
+    "left_hip": 1,
+    "right_hip": 2,
+    "spine1": 3,
+    "left_knee": 4,
+    "right_knee": 5,
+    "spine2": 6,
+    "left_ankle": 7,
+    "right_ankle": 8,
+    "spine3": 9,
+    "left_foot": 10,
+    "right_foot": 11,
+    "neck": 12,
+    "left_collar": 13,
+    "right_collar": 14,
+    "head": 15,
+    "left_shoulder": 16,
+    "right_shoulder": 17,
+    "left_elbow": 18,
+    "right_elbow": 19,
+    "left_wrist": 20,
+    "right_wrist": 21,
+}
+SOMA_HIPS_ALIGNMENT_BONES = (
+    ("Spine1", "pelvis", "spine1"),
+    ("LeftLeg", "pelvis", "left_hip"),
+    ("RightLeg", "pelvis", "right_hip"),
+)
+SOMA_DIRECTION_BONES = {
+    "Spine1": ("Spine2", "spine1", "spine2"),
+    "Spine2": ("Chest", "spine2", "spine3"),
+    "Chest": ("Neck1", "spine3", "neck"),
+    "Neck1": ("Neck2", "neck", "head"),
+    "LeftShoulder": ("LeftArm", "left_collar", "left_shoulder"),
+    "LeftArm": ("LeftForeArm", "left_shoulder", "left_elbow"),
+    "LeftForeArm": ("LeftHand", "left_elbow", "left_wrist"),
+    "RightShoulder": ("RightArm", "right_collar", "right_shoulder"),
+    "RightArm": ("RightForeArm", "right_shoulder", "right_elbow"),
+    "RightForeArm": ("RightHand", "right_elbow", "right_wrist"),
+    "LeftLeg": ("LeftShin", "left_hip", "left_knee"),
+    "LeftShin": ("LeftFoot", "left_knee", "left_ankle"),
+    "LeftFoot": ("LeftToeBase", "left_ankle", "left_foot"),
+    "RightLeg": ("RightShin", "right_hip", "right_knee"),
+    "RightShin": ("RightFoot", "right_knee", "right_ankle"),
+    "RightFoot": ("RightToeBase", "right_ankle", "right_foot"),
+}
+SOMA_TWIST_REFERENCE_BONES = {
+    "Spine1": ("RightLeg", "LeftLeg", "right_hip", "left_hip"),
+    "Spine2": ("RightShoulder", "LeftShoulder", "right_collar", "left_collar"),
+    "Chest": ("RightShoulder", "LeftShoulder", "right_collar", "left_collar"),
+    "Neck1": ("RightShoulder", "LeftShoulder", "right_collar", "left_collar"),
+    "LeftShoulder": ("RightShoulder", "LeftShoulder", "right_collar", "left_collar"),
+    "LeftArm": ("LeftArm", "LeftShoulder", "left_shoulder", "left_collar"),
+    "LeftForeArm": ("LeftForeArm", "LeftArm", "left_elbow", "left_shoulder"),
+    "RightShoulder": ("LeftShoulder", "RightShoulder", "left_collar", "right_collar"),
+    "RightArm": ("RightArm", "RightShoulder", "right_shoulder", "right_collar"),
+    "RightForeArm": ("RightForeArm", "RightArm", "right_elbow", "right_shoulder"),
+    "LeftLeg": ("LeftLeg", "Hips", "left_hip", "pelvis"),
+    "LeftShin": ("LeftShin", "LeftLeg", "left_knee", "left_hip"),
+    "LeftFoot": ("LeftFoot", "LeftShin", "left_ankle", "left_knee"),
+    "RightLeg": ("RightLeg", "Hips", "right_hip", "pelvis"),
+    "RightShin": ("RightShin", "RightLeg", "right_knee", "right_hip"),
+    "RightFoot": ("RightFoot", "RightShin", "right_ankle", "right_knee"),
+}
+
+SOMA_FINGER_JOINT_PREFIXES = (
+    "LeftHandThumb",
+    "LeftHandIndex",
+    "LeftHandMiddle",
+    "LeftHandRing",
+    "LeftHandPinky",
+    "RightHandThumb",
+    "RightHandIndex",
+    "RightHandMiddle",
+    "RightHandRing",
+    "RightHandPinky",
+)
+
+
+def _repo_root() -> str:
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def _unity_position_to_soma_bvh(position: np.ndarray) -> np.ndarray:
+    # SOMA example BVHs are Y-up and Z-forward. Keep the BVH in that
+    # source frame; SOMA's converter handles the later Newton/G1 transform.
+    position = np.asarray(position, dtype=np.float64)
+    return np.array([-position[0], position[1], position[2]], dtype=np.float64)
+
+
+def _unity_positions_to_soma_bvh(positions: np.ndarray) -> np.ndarray:
+    positions = np.asarray(positions, dtype=np.float64)
+    out = positions.copy()
+    out[:, 0] = -positions[:, 0]
+    out[:, 1] = positions[:, 1]
+    out[:, 2] = positions[:, 2]
+    return out
+
+
+def _robot_rotation_to_soma_bvh(rotation: sRot) -> sRot:
+    # process_smpl_joints() reports the root orientation in the robot/Newton
+    # Z-up frame. The BVH motion channels need the inverse source transform.
+    bvh_from_robot = sRot.from_euler("x", -90.0, degrees=True)
+    return bvh_from_robot * rotation * bvh_from_robot.inv()
+
+
+def _rotation_to_bvh_zyx(rotation: sRot) -> np.ndarray:
+    # SOMA's BVH loader composes channels as qz * qy * qx for
+    # Zrotation/Yrotation/Xrotation, matching scipy's intrinsic "ZYX".
+    return rotation.as_euler("ZYX", degrees=True).astype(np.float64)
+
+
+def _normalize_vector(vector: np.ndarray) -> np.ndarray | None:
+    vector = np.asarray(vector, dtype=np.float64)
+    norm = np.linalg.norm(vector)
+    if norm < 1e-8:
+        return None
+    return vector / norm
+
+
+def _rotation_between_vectors(source: np.ndarray, target: np.ndarray) -> sRot | None:
+    source_n = _normalize_vector(source)
+    target_n = _normalize_vector(target)
+    if source_n is None or target_n is None:
+        return None
+
+    dot = float(np.clip(np.dot(source_n, target_n), -1.0, 1.0))
+    if dot > 1.0 - 1e-8:
+        return sRot.identity()
+    if dot < -1.0 + 1e-8:
+        axis = np.cross(source_n, np.array([1.0, 0.0, 0.0], dtype=np.float64))
+        if np.linalg.norm(axis) < 1e-6:
+            axis = np.cross(source_n, np.array([0.0, 1.0, 0.0], dtype=np.float64))
+        return sRot.from_rotvec(_normalize_vector(axis) * np.pi)
+
+    axis = np.cross(source_n, target_n)
+    angle = np.arccos(dot)
+    return sRot.from_rotvec(_normalize_vector(axis) * angle)
+
+
+def _vectors_form_plane(
+    primary: np.ndarray, secondary: np.ndarray, min_sin: float = 0.05
+) -> bool:
+    primary_n = _normalize_vector(primary)
+    secondary_n = _normalize_vector(secondary)
+    if primary_n is None or secondary_n is None:
+        return False
+    return np.linalg.norm(np.cross(primary_n, secondary_n)) > min_sin
+
+
+def _align_vector_sets(
+    source_vectors: list[np.ndarray],
+    target_vectors: list[np.ndarray],
+    weights: list[float] | None = None,
+):
+    valid_source = []
+    valid_target = []
+    valid_weights = []
+    for idx, (source, target) in enumerate(zip(source_vectors, target_vectors)):
+        source_n = _normalize_vector(source)
+        target_n = _normalize_vector(target)
+        if source_n is None or target_n is None:
+            continue
+        valid_source.append(source_n)
+        valid_target.append(target_n)
+        if weights is not None:
+            valid_weights.append(weights[idx])
+
+    if not valid_source:
+        return None
+    if len(valid_source) == 1:
+        return _rotation_between_vectors(valid_source[0], valid_target[0])
+
+    try:
+        align_weights = np.asarray(valid_weights) if weights is not None else None
+        rotation, _ = sRot.align_vectors(
+            np.stack(valid_target), np.stack(valid_source), weights=align_weights
+        )
+        return rotation
+    except ValueError:
+        return None
+
+
+def _align_primary_with_twist(
+    source_primary: np.ndarray,
+    target_primary: np.ndarray,
+    source_secondary: np.ndarray | None = None,
+    target_secondary: np.ndarray | None = None,
+):
+    primary_alignment = _rotation_between_vectors(source_primary, target_primary)
+    if primary_alignment is None:
+        return None
+
+    if not (
+        source_secondary is not None
+        and target_secondary is not None
+        and _vectors_form_plane(source_primary, source_secondary)
+        and _vectors_form_plane(target_primary, target_secondary)
+    ):
+        return primary_alignment
+
+    axis = _normalize_vector(target_primary)
+    if axis is None:
+        return primary_alignment
+
+    rotated_secondary = primary_alignment.apply(source_secondary)
+    source_projected = rotated_secondary - np.dot(rotated_secondary, axis) * axis
+    target_projected = target_secondary - np.dot(target_secondary, axis) * axis
+    source_projected_n = _normalize_vector(source_projected)
+    target_projected_n = _normalize_vector(target_projected)
+    if source_projected_n is None or target_projected_n is None:
+        return primary_alignment
+
+    sin_angle = np.dot(axis, np.cross(source_projected_n, target_projected_n))
+    cos_angle = np.clip(np.dot(source_projected_n, target_projected_n), -1.0, 1.0)
+    twist = sRot.from_rotvec(axis * np.arctan2(sin_angle, cos_angle))
+    return twist * primary_alignment
+
+
+def _rotvec_to_bvh_zyx(rotvec: np.ndarray) -> np.ndarray:
+    rotvec = np.asarray(rotvec, dtype=np.float64)
+    if np.linalg.norm(rotvec) < 1e-8:
+        return np.zeros(3, dtype=np.float64)
+    return _rotation_to_bvh_zyx(sRot.from_rotvec(rotvec))
+
+
+class SomaBvhRecorder:
+    """Records streamed Pico/SMPL pose frames into SOMA-compatible BVH files."""
+
+    def __init__(
+        self,
+        record_dir: str,
+        target_fps: int,
+        log_prefix: str = "PoseLoop",
+        template_path: str | None = None,
+        zero_pose_path: str | None = None,
+        root_scale: float = 100.0,
+    ):
+        self.record_dir = record_dir
+        self.target_fps = max(1, int(target_fps))
+        self.frame_time = 1.0 / float(self.target_fps)
+        self.log_prefix = log_prefix
+        self.template_path = template_path or os.path.join(
+            _repo_root(), SOMA_BVH_TEMPLATE_REL_PATH
+        )
+        self.zero_pose_path = zero_pose_path or os.path.join(
+            _repo_root(), SOMA_BVH_ZERO_POSE_REL_PATH
+        )
+        self.root_scale = float(root_scale)
+
+        self.header_lines: list[str] = []
+        self.base_frame: np.ndarray | None = None
+        self.channel_slices: dict[str, slice] = {}
+        self.channel_names: dict[str, list[str]] = {}
+        self.joint_offsets: dict[str, np.ndarray] = {}
+        self.joint_parents: dict[str, str | None] = {}
+        self.base_rotations: dict[str, sRot] = {}
+        self.base_positions: dict[str, np.ndarray] = {}
+        self.base_global_rotations: dict[str, sRot] = {}
+        self.base_global_positions: dict[str, np.ndarray] = {}
+
+        self.frames: list[np.ndarray] = []
+        self.output_path: str | None = None
+        self.first_root_bvh: np.ndarray | None = None
+        self.first_hip_rotation: sRot | None = None
+        self.first_smpl_rotations: dict[int, sRot] = {}
+        self.session_active = False
+
+        self._load_template()
+
+    def _load_template(self):
+        if not os.path.exists(self.template_path):
+            raise FileNotFoundError(
+                "SOMA BVH template not found: "
+                f"{self.template_path}. Configure SOMA Retargeter under "
+                "external_dependencies/soma-retargeter first."
+            )
+        if not os.path.exists(self.zero_pose_path):
+            raise FileNotFoundError(
+                "SOMA BVH zero-pose file not found: "
+                f"{self.zero_pose_path}. Configure SOMA Retargeter under "
+                "external_dependencies/soma-retargeter first."
+            )
+
+        self.header_lines, template_frame = self._read_bvh_header_and_first_frame(
+            self.template_path
+        )
+        self._parse_channels(self.header_lines)
+        self._parse_hierarchy(self.header_lines)
+        total_channels = sum(s.stop - s.start for s in self.channel_slices.values())
+
+        if template_frame is None:
+            self.base_frame = np.zeros(total_channels, dtype=np.float64)
+        else:
+            self.base_frame = template_frame.copy()
+            if template_frame.shape[0] != total_channels:
+                raise ValueError(
+                    f"SOMA BVH template channel mismatch: frame has {template_frame.shape[0]} "
+                    f"values but hierarchy declares {total_channels}"
+                )
+
+        zero_pose_values = self._read_bvh_joint_channel_values(self.zero_pose_path)
+        self._apply_joint_channel_values(self.base_frame, zero_pose_values)
+        self._zero_finger_channels(self.base_frame)
+        self._cache_base_transforms()
+
+    @staticmethod
+    def _read_bvh_header_and_first_frame(path: str) -> tuple[list[str], np.ndarray | None]:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        motion_idx = None
+        for idx, line in enumerate(lines):
+            if line.strip() == "MOTION":
+                motion_idx = idx
+                break
+        if motion_idx is None:
+            raise ValueError(f"SOMA BVH has no MOTION section: {path}")
+
+        data_line = None
+        for line in lines[motion_idx + 1 :]:
+            token = line.split()
+            if not token or token[0] == "Frames:" or " ".join(token[:2]) == "Frame Time:":
+                continue
+            data_line = token
+            break
+
+        frame = None if data_line is None else np.array([float(v) for v in data_line])
+        return [line.rstrip("\n") for line in lines[:motion_idx]], frame
+
+    @classmethod
+    def _read_bvh_joint_channel_values(
+        cls, path: str
+    ) -> dict[str, dict[str, np.ndarray]]:
+        header_lines, frame = cls._read_bvh_header_and_first_frame(path)
+        if frame is None:
+            return {}
+
+        channel_slices, channel_names = cls._parse_channel_layout(header_lines)
+        total_channels = sum(s.stop - s.start for s in channel_slices.values())
+        if frame.shape[0] != total_channels:
+            raise ValueError(
+                f"SOMA BVH channel mismatch: frame has {frame.shape[0]} values "
+                f"but hierarchy declares {total_channels}: {path}"
+            )
+
+        joint_values = {}
+        axis_to_idx = {"X": 0, "Y": 1, "Z": 2}
+        rot_axis_to_idx = {"Z": 0, "Y": 1, "X": 2}
+        for joint_name, channel_slice in channel_slices.items():
+            position = np.zeros(3, dtype=np.float64)
+            rotation_zyx = np.zeros(3, dtype=np.float64)
+            for offset, channel_name in enumerate(channel_names[joint_name]):
+                value = frame[channel_slice.start + offset]
+                axis = channel_name[0].upper()
+                if "position" in channel_name:
+                    position[axis_to_idx[axis]] = value
+                elif "rotation" in channel_name:
+                    rotation_zyx[rot_axis_to_idx[axis]] = value
+            joint_values[joint_name] = {
+                "position": position,
+                "rotation_zyx": rotation_zyx,
+            }
+        return joint_values
+
+    def _apply_joint_channel_values(
+        self, frame: np.ndarray, joint_values: dict[str, dict[str, np.ndarray]]
+    ):
+        for joint_name, values in joint_values.items():
+            if joint_name not in self.channel_slices:
+                continue
+            self._set_joint_position(frame, joint_name, values["position"])
+            self._set_joint_rotation(frame, joint_name, values["rotation_zyx"])
+
+    @staticmethod
+    def _parse_channel_layout(
+        header_lines: list[str],
+    ) -> tuple[dict[str, slice], dict[str, list[str]]]:
+        channel_slices = {}
+        channel_names = {}
+        current_joint = None
+        cursor = 0
+        for line in header_lines:
+            token = line.split()
+            if not token:
+                continue
+            if token[0] in ("ROOT", "JOINT"):
+                current_joint = token[1]
+            elif token[0] == "CHANNELS" and current_joint:
+                count = int(token[1])
+                names = token[2 : 2 + count]
+                channel_slices[current_joint] = slice(cursor, cursor + count)
+                channel_names[current_joint] = names
+                cursor += count
+        return channel_slices, channel_names
+
+    def _parse_channels(self, header_lines: list[str]):
+        self.channel_slices, self.channel_names = self._parse_channel_layout(header_lines)
+
+    def _parse_hierarchy(self, header_lines: list[str]):
+        self.joint_offsets = {}
+        self.joint_parents = {}
+        stack: list[str | None] = []
+        pending_joint: str | None = None
+
+        for line in header_lines:
+            token = line.split()
+            if not token:
+                continue
+            if token[0] in ("ROOT", "JOINT"):
+                pending_joint = token[1]
+                parent = next((joint for joint in reversed(stack) if joint is not None), None)
+                self.joint_parents[pending_joint] = parent
+            elif token[0] == "End":
+                pending_joint = None
+            elif token[0] == "{":
+                stack.append(pending_joint)
+                pending_joint = None
+            elif token[0] == "}":
+                if stack:
+                    stack.pop()
+            elif token[0] == "OFFSET":
+                current_joint = next(
+                    (joint for joint in reversed(stack) if joint is not None), None
+                )
+                if current_joint is not None:
+                    self.joint_offsets[current_joint] = np.array(
+                        [float(v) for v in token[1:4]], dtype=np.float64
+                    )
+
+    def _zero_finger_channels(self, frame: np.ndarray):
+        for joint_name in self.channel_slices:
+            if joint_name.startswith(SOMA_FINGER_JOINT_PREFIXES):
+                self._set_joint_rotation(frame, joint_name, np.zeros(3, dtype=np.float64))
+
+    def _cache_base_transforms(self):
+        assert self.base_frame is not None
+        self.base_rotations = {}
+        self.base_positions = {}
+        for joint_name in self.channel_slices:
+            self.base_rotations[joint_name] = self._get_joint_rotation(self.base_frame, joint_name)
+            self.base_positions[joint_name] = self._get_joint_position(self.base_frame, joint_name)
+        self.base_global_rotations, self.base_global_positions = self._compute_global_pose(
+            self.base_frame
+        )
+
+    def _get_joint_position(self, frame: np.ndarray, joint_name: str) -> np.ndarray:
+        channel_slice = self.channel_slices.get(joint_name)
+        if channel_slice is None:
+            return np.zeros(3, dtype=np.float64)
+        channel_names = self.channel_names[joint_name]
+        position = np.zeros(3, dtype=np.float64)
+        axis_to_idx = {"X": 0, "Y": 1, "Z": 2}
+        for offset, channel_name in enumerate(channel_names):
+            if "position" in channel_name:
+                position[axis_to_idx[channel_name[0].upper()]] = frame[channel_slice.start + offset]
+        return position
+
+    def _get_joint_local_position(self, frame: np.ndarray, joint_name: str) -> np.ndarray:
+        channel_names = self.channel_names.get(joint_name, [])
+        if any("position" in channel_name for channel_name in channel_names):
+            return self._get_joint_position(frame, joint_name)
+        return self.joint_offsets.get(joint_name, np.zeros(3, dtype=np.float64))
+
+    def _base_vector_between(self, from_joint: str, to_joint: str) -> np.ndarray:
+        return self.base_global_positions[to_joint] - self.base_global_positions[from_joint]
+
+    @staticmethod
+    def _body_vector_between(
+        body_positions_bvh: np.ndarray, from_joint: str, to_joint: str
+    ) -> np.ndarray:
+        from_idx = SMPL_FULL_JOINT_IDX[from_joint]
+        to_idx = SMPL_FULL_JOINT_IDX[to_joint]
+        return body_positions_bvh[to_idx] - body_positions_bvh[from_idx]
+
+    def _get_joint_rotation(self, frame: np.ndarray, joint_name: str) -> sRot:
+        channel_slice = self.channel_slices.get(joint_name)
+        if channel_slice is None:
+            return sRot.identity()
+        channel_names = self.channel_names[joint_name]
+        rotation_zyx = np.zeros(3, dtype=np.float64)
+        axis_to_idx = {"Z": 0, "Y": 1, "X": 2}
+        for offset, channel_name in enumerate(channel_names):
+            if "rotation" in channel_name:
+                rotation_zyx[axis_to_idx[channel_name[0].upper()]] = frame[
+                    channel_slice.start + offset
+                ]
+        return sRot.from_euler("ZYX", rotation_zyx, degrees=True)
+
+    def _set_joint_position(self, frame: np.ndarray, joint_name: str, position_xyz: np.ndarray):
+        channel_slice = self.channel_slices.get(joint_name)
+        if channel_slice is None:
+            return
+        channel_names = self.channel_names[joint_name]
+        axis_values = {
+            "X": float(position_xyz[0]),
+            "Y": float(position_xyz[1]),
+            "Z": float(position_xyz[2]),
+        }
+        for offset, channel_name in enumerate(channel_names):
+            if "position" in channel_name:
+                frame[channel_slice.start + offset] = axis_values[channel_name[0].upper()]
+
+    def _set_joint_rotation(self, frame: np.ndarray, joint_name: str, rotation_zyx: np.ndarray):
+        channel_slice = self.channel_slices.get(joint_name)
+        if channel_slice is None:
+            return
+        channel_names = self.channel_names[joint_name]
+        axis_values = {
+            "Z": float(rotation_zyx[0]),
+            "Y": float(rotation_zyx[1]),
+            "X": float(rotation_zyx[2]),
+        }
+        for offset, channel_name in enumerate(channel_names):
+            if "rotation" in channel_name:
+                frame[channel_slice.start + offset] = axis_values[channel_name[0].upper()]
+
+    def _compute_global_pose(
+        self, frame: np.ndarray
+    ) -> tuple[dict[str, sRot], dict[str, np.ndarray]]:
+        global_rotations = {}
+        global_positions = {}
+        for joint_name in self.channel_slices:
+            parent_name = self.joint_parents.get(joint_name)
+            local_rotation = self._get_joint_rotation(frame, joint_name)
+            local_position = self._get_joint_local_position(frame, joint_name)
+            if parent_name is None:
+                global_rotations[joint_name] = local_rotation
+                global_positions[joint_name] = local_position
+            else:
+                parent_rotation = global_rotations[parent_name]
+                parent_position = global_positions[parent_name]
+                global_rotations[joint_name] = parent_rotation * local_rotation
+                global_positions[joint_name] = parent_position + parent_rotation.apply(
+                    local_position
+                )
+        return global_rotations, global_positions
+
+    def _estimate_hips_rotation(
+        self,
+        body_positions_bvh: np.ndarray,
+        body_quat_w: np.ndarray,
+    ) -> sRot:
+        source_vectors = []
+        target_vectors = []
+        for soma_child, smpl_parent, smpl_child in SOMA_HIPS_ALIGNMENT_BONES:
+            parent_idx = SMPL_FULL_JOINT_IDX[smpl_parent]
+            child_idx = SMPL_FULL_JOINT_IDX[smpl_child]
+            source_vectors.append(
+                self.base_global_rotations["Hips"].apply(
+                    self._get_joint_local_position(self.base_frame, soma_child)
+                )
+            )
+            target_vectors.append(body_positions_bvh[child_idx] - body_positions_bvh[parent_idx])
+
+        alignment = _align_vector_sets(source_vectors, target_vectors)
+        if alignment is not None:
+            return alignment * self.base_global_rotations.get("Hips", sRot.identity())
+
+        hip_rotation = sRot.from_quat(body_quat_w, scalar_first=True)
+        if self.first_hip_rotation is None:
+            self.first_hip_rotation = hip_rotation
+        hip_delta = hip_rotation * self.first_hip_rotation.inv()
+        hip_delta_bvh = _robot_rotation_to_soma_bvh(hip_delta)
+        return hip_delta_bvh * self.base_rotations.get("Hips", sRot.identity())
+
+    def _apply_direction_bone_rotations(
+        self, frame: np.ndarray, body_positions_bvh: np.ndarray
+    ):
+        global_rotations = {}
+        global_positions = {}
+        for joint_name in self.channel_slices:
+            parent_name = self.joint_parents.get(joint_name)
+            parent_rotation = (
+                global_rotations[parent_name]
+                if parent_name is not None
+                else sRot.identity()
+            )
+
+            if joint_name in SOMA_DIRECTION_BONES:
+                soma_child, smpl_parent, smpl_child = SOMA_DIRECTION_BONES[joint_name]
+                if soma_child in self.channel_slices:
+                    source_vector = self._base_vector_between(joint_name, soma_child)
+                    target_vector = self._body_vector_between(
+                        body_positions_bvh, smpl_parent, smpl_child
+                    )
+                    source_twist = None
+                    target_twist = None
+                    if joint_name in SOMA_TWIST_REFERENCE_BONES:
+                        (
+                            source_ref_from,
+                            source_ref_to,
+                            target_ref_from,
+                            target_ref_to,
+                        ) = SOMA_TWIST_REFERENCE_BONES[joint_name]
+                        source_twist = self._base_vector_between(
+                            source_ref_from, source_ref_to
+                        )
+                        target_twist = self._body_vector_between(
+                            body_positions_bvh, target_ref_from, target_ref_to
+                        )
+                    alignment = _align_primary_with_twist(
+                        source_vector,
+                        target_vector,
+                        source_twist,
+                        target_twist,
+                    )
+                    if alignment is not None:
+                        desired_global_rotation = (
+                            alignment * self.base_global_rotations[joint_name]
+                        )
+                        local_rotation = parent_rotation.inv() * desired_global_rotation
+                        self._set_joint_rotation(
+                            frame,
+                            joint_name,
+                            _rotation_to_bvh_zyx(local_rotation),
+                        )
+
+            local_rotation = self._get_joint_rotation(frame, joint_name)
+            local_position = self._get_joint_local_position(frame, joint_name)
+            if parent_name is None:
+                global_rotations[joint_name] = local_rotation
+                global_positions[joint_name] = local_position
+            else:
+                parent_position = global_positions[parent_name]
+                global_rotations[joint_name] = parent_rotation * local_rotation
+                global_positions[joint_name] = parent_position + parent_rotation.apply(
+                    local_position
+                )
+
+    def start_session(self):
+        if self.session_active:
+            return
+        os.makedirs(self.record_dir, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        output_path = os.path.join(self.record_dir, f"soma_session_{stamp}.bvh")
+        suffix = 1
+        while os.path.exists(output_path):
+            output_path = os.path.join(
+                self.record_dir, f"soma_session_{stamp}_{suffix:03d}.bvh"
+            )
+            suffix += 1
+        self.output_path = output_path
+        self.frames = []
+        self.first_root_bvh = None
+        self.first_hip_rotation = None
+        self.first_smpl_rotations = {}
+        self.session_active = True
+        print(f"[{self.log_prefix}] SOMA BVH recording started: {self.output_path}")
+
+    def record_frame(
+        self,
+        body_poses_np: np.ndarray,
+        smpl_pose_np: np.ndarray,
+        body_quat_w: np.ndarray,
+    ):
+        if self.base_frame is None:
+            return
+        if not self.session_active:
+            self.start_session()
+
+        body_poses_np = np.asarray(body_poses_np, dtype=np.float64)
+        smpl_pose_np = np.asarray(smpl_pose_np, dtype=np.float64)
+        body_quat_w = np.asarray(body_quat_w, dtype=np.float64)
+        min_body_joints = max(SMPL_FULL_JOINT_IDX.values()) + 1
+        if body_poses_np.shape[0] < min_body_joints or smpl_pose_np.shape[0] < 21:
+            return
+
+        frame = self.base_frame.copy()
+        body_positions_bvh = _unity_positions_to_soma_bvh(body_poses_np[:, :3])
+        root_bvh = _unity_position_to_soma_bvh(body_poses_np[0, :3])
+        if self.first_root_bvh is None:
+            self.first_root_bvh = root_bvh
+
+        hip_position_cm = self.base_positions.get("Hips", np.zeros(3, dtype=np.float64)) + (
+            root_bvh - self.first_root_bvh
+        ) * self.root_scale
+        hip_rotation_out = self._estimate_hips_rotation(body_positions_bvh, body_quat_w)
+
+        self._set_joint_position(frame, "Hips", hip_position_cm)
+        self._set_joint_rotation(frame, "Hips", _rotation_to_bvh_zyx(hip_rotation_out))
+        self._apply_direction_bone_rotations(frame, body_positions_bvh)
+
+        self._zero_finger_channels(frame)
+        self.frames.append(frame)
+
+    def finalize(self):
+        if not self.session_active:
+            return
+        if not self.frames:
+            print(f"[{self.log_prefix}] SOMA BVH recording discarded: no frames captured")
+            self._reset_session()
+            return
+
+        assert self.output_path is not None
+        with open(self.output_path, "w", encoding="utf-8") as f:
+            for line in self.header_lines:
+                f.write(f"{line}\n")
+            f.write("MOTION\n")
+            f.write(f"Frames: {len(self.frames)}\n")
+            f.write(f"Frame Time: {self.frame_time:.6f}\n")
+            for frame in self.frames:
+                f.write(" ".join(f"{value:.6f}" for value in frame))
+                f.write("\n")
+
+        print(
+            f"[{self.log_prefix}] SOMA BVH recording saved: "
+            f"{self.output_path} ({len(self.frames)} frames)"
+        )
+        self._reset_session()
+
+    def _reset_session(self):
+        self.frames = []
+        self.output_path = None
+        self.first_root_bvh = None
+        self.first_hip_rotation = None
+        self.first_smpl_rotations = {}
+        self.session_active = False
+
+
 def compute_from_body_poses(parent_indices: list, device, body_poses_np: np.ndarray):
     """
     Compute local joints and body orientation from provided body_poses_np.
@@ -862,6 +1656,7 @@ def _pose_stream_common(
         pass
     finally:
         # Cleanup resources
+        streamer.close()
         reader.stop()
         three_point.close()
 
@@ -1182,7 +1977,15 @@ class PoseStreamer:
         self.num_frames_to_send = num_frames_to_send
         self.target_fps = target_fps
         self.record_dir = record_dir
+        self.record_format = record_format.lower()
         self.log_prefix = log_prefix
+        if self.record_format not in VALID_RECORD_FORMATS:
+            raise ValueError(
+                f"Unsupported record_format '{record_format}'. "
+                f"Choose one of: {', '.join(sorted(VALID_RECORD_FORMATS))}"
+            )
+        self.record_npz = bool(record_dir and self.record_format in ("npz", "both"))
+        self.record_soma_bvh = bool(record_dir and self.record_format in ("soma_bvh", "both"))
 
         # Injected dependencies
         self.reader = reader
@@ -1195,6 +1998,11 @@ class PoseStreamer:
         if record_dir:
             os.makedirs(record_dir, exist_ok=True)
         self.record_idx = 0
+        self.soma_bvh_recorder = (
+            SomaBvhRecorder(record_dir=record_dir, target_fps=target_fps, log_prefix=log_prefix)
+            if self.record_soma_bvh
+            else None
+        )
 
         self.left_hand_ik_solver, self.right_hand_ik_solver = init_hand_ik_solvers()
         self.parent_indices = [
@@ -1255,6 +2063,8 @@ class PoseStreamer:
         self.yaw_accumulator.reset()
 
     def on_mode_exit(self):
+        if self.soma_bvh_recorder is not None:
+            self.soma_bvh_recorder.finalize()
         self.frame_buffer.clear()
         self.prev_stamp_ns = None
         self.prev_smpl_pose_np = None
@@ -1263,6 +2073,10 @@ class PoseStreamer:
         self.next_target_ns = None
         self.buffer_cleared = True
         self.step = 0
+
+    def close(self):
+        if self.soma_bvh_recorder is not None:
+            self.soma_bvh_recorder.finalize()
 
     def run_once(self):
         """Execute one iteration of the pose streaming loop."""
@@ -1468,9 +2282,21 @@ class PoseStreamer:
             packed_message = pack_pose_message(numpy_data, topic="pose")
             self.socket.send(packed_message)
 
-            if self.record_dir:
+            if self.soma_bvh_recorder is not None:
+                self.soma_bvh_recorder.record_frame(
+                    body_poses_np=sample["body_poses_np"],
+                    smpl_pose_np=use_pose,
+                    body_quat_w=use_body_quat,
+                )
+
+            if self.record_npz:
+                record_data = dict(numpy_data)
+                record_data["body_poses_np"] = np.asarray(
+                    sample["body_poses_np"], dtype=np.float32
+                )
+                record_data["timestamp_ns"] = np.array([curr_stamp_ns], dtype=np.int64)
                 out_path = os.path.join(self.record_dir, f"pose_{self.record_idx:06d}.npz")
-                np.savez_compressed(out_path, **numpy_data)
+                np.savez_compressed(out_path, **record_data)
                 self.record_idx += 1
 
         self.step += 1
@@ -2045,6 +2871,7 @@ def run_pico_manager(
         print("\nStopping manager...")
     finally:
         # Cleanup resources
+        pose_streamer.close()
         reader.stop()
         three_point.close()
         socket.close()
@@ -2076,7 +2903,8 @@ if __name__ == "__main__":
         "--record_format",
         type=str,
         default="npz",
-        help="Recording format: 'npz' or 'bin' (default: npz)",
+        choices=sorted(VALID_RECORD_FORMATS),
+        help="Recording format: 'npz', 'soma_bvh', or 'both' (default: npz)",
     )
     parser.add_argument(
         "--manager",

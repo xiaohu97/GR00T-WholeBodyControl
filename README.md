@@ -449,6 +449,29 @@ python gear_sonic/scripts/pico_manager_thread_server.py --manager \
     --vis_vr3pt --vis_smpl
 ```
 
+直接记录 SOMA Retargeter 可读取的 BVH：
+```bash
+python gear_sonic/scripts/pico_manager_thread_server.py --manager \
+    --record_dir ./pico_records \
+    --record_format soma_bvh \
+    --vis_vr3pt --vis_smpl
+```
+
+如果同时需要 `.npz` 和 SOMA BVH：
+```bash
+python gear_sonic/scripts/pico_manager_thread_server.py --manager \
+    --record_dir ./pico_records \
+    --record_format both \
+    --vis_vr3pt --vis_smpl
+```
+
+SOMA BVH 会保存为 `./pico_records/soma_session_YYYYmmdd_HHMMSS.bvh`，退出
+`POSE` 模式或结束程序时写完文件。进入 `POSE` 后的第一帧会作为 BVH 的位置零点；
+身体、腿部和手臂姿态会按每帧 Pico/SMPL 24 个全局关节位置重建骨段方向。导出的 BVH
+会先精确对齐主骨段方向，再用骨盆、锁骨、父骨段等二级参考修正关节 twist。BVH 使用
+SOMA 示例动作一致的 Y-up、Z-forward 源坐标；SOMA 转换器会再转到内部/G1 坐标。
+`.npz` 里会额外保存原始 `body_poses_np` 和 `timestamp_ns`，方便后处理或调试。
+
 如果只想跑最简模式，也可以：
 
 ```bash
@@ -538,6 +561,13 @@ uv run python -c "import soma_retargeter, warp, newton; print(soma_retargeter.__
 - 源格式：`soma`
 - 目标机器人：`unitree_g1`
 
+如果 PICO 录制生成了 `soma_session_*.bvh`，可以先复制到 SOMA 的输入目录：
+
+```bash
+cp /path/to/GR00T-WholeBodyControl/pico_records/soma_session_*.bvh \
+    /path/to/GR00T-WholeBodyControl/external_dependencies/soma-retargeter/assets/motions/bvh/
+```
+
 运行：
 
 ```bash
@@ -553,7 +583,9 @@ uv run python ./app/bvh_to_csv_converter.py \
 --viewer gl
 ```
 
-注意：SOMA Retargeter 的输入是 SOMA skeleton BVH，不是 `pico_manager_thread_server.py --record_dir` 直接保存的 `.npz`。当前 PICO 记录以人体 SMPL/VR 目标数据为主；如果要把 PICO 录制数据接到 SOMA，还需要额外实现 `PICO/SMPL -> SOMA BVH` 的导出器。
+注意：SOMA Retargeter 的输入是 SOMA skeleton BVH，不是默认 `.npz`。PICO 录制时可以使用
+`--record_format soma_bvh` 直接生成可导入 SOMA 的 BVH；如果已录制 `.npz`，需要其中包含
+`body_poses_np`、`timestamp_ns` 等原始字段后再做离线导出。
 
 ## 常见问题
 

@@ -653,48 +653,200 @@ SMPL_FULL_JOINT_IDX = {
     "right_elbow": 19,
     "left_wrist": 20,
     "right_wrist": 21,
+    "left_hand": 22,
+    "right_hand": 23,
 }
-SOMA_HIPS_ALIGNMENT_BONES = (
-    ("Spine1", "pelvis", "spine1"),
-    ("LeftLeg", "pelvis", "left_hip"),
-    ("RightLeg", "pelvis", "right_hip"),
+# Reverse mapping: BVH joint name → SMPL full joint index (for rotation-based BVH recording)
+_BVH_TO_SMPL_IDX = {bvh: SMPL_FULL_JOINT_IDX[smpl] for smpl, bvh in SMPL_BODY_POSE_TO_SOMA_JOINT.items()}
+_BVH_TO_SMPL_IDX["Hips"] = 0  # pelvis → Hips
+SMPL_REQUIRED_BODY_JOINTS = (
+    "pelvis",
+    "left_hip",
+    "right_hip",
+    "spine1",
+    "left_knee",
+    "right_knee",
+    "spine2",
+    "left_ankle",
+    "right_ankle",
+    "spine3",
+    "left_foot",
+    "right_foot",
+    "neck",
+    "left_collar",
+    "right_collar",
+    "head",
+    "left_shoulder",
+    "right_shoulder",
+    "left_elbow",
+    "right_elbow",
+    "left_wrist",
+    "right_wrist",
 )
-SOMA_DIRECTION_BONES = {
-    "Spine1": ("Spine2", "spine1", "spine2"),
-    "Spine2": ("Chest", "spine2", "spine3"),
-    "Chest": ("Neck1", "spine3", "neck"),
-    "Neck1": ("Neck2", "neck", "head"),
-    "LeftShoulder": ("LeftArm", "left_collar", "left_shoulder"),
-    "LeftArm": ("LeftForeArm", "left_shoulder", "left_elbow"),
-    "LeftForeArm": ("LeftHand", "left_elbow", "left_wrist"),
-    "RightShoulder": ("RightArm", "right_collar", "right_shoulder"),
-    "RightArm": ("RightForeArm", "right_shoulder", "right_elbow"),
-    "RightForeArm": ("RightHand", "right_elbow", "right_wrist"),
-    "LeftLeg": ("LeftShin", "left_hip", "left_knee"),
-    "LeftShin": ("LeftFoot", "left_knee", "left_ankle"),
-    "LeftFoot": ("LeftToeBase", "left_ankle", "left_foot"),
-    "RightLeg": ("RightShin", "right_hip", "right_knee"),
-    "RightShin": ("RightFoot", "right_knee", "right_ankle"),
-    "RightFoot": ("RightToeBase", "right_ankle", "right_foot"),
+SOMA_HIPS_FRAME_BONE = (
+    "Spine1",
+    "pelvis",
+    "spine1",
+    "RightLeg",
+    "LeftLeg",
+    "right_hip",
+    "left_hip",
+)
+SOMA_TORSO_FRAME_BONES = {
+    "Spine1": (
+        "Spine2",
+        "spine1",
+        "spine2",
+        "RightLeg",
+        "LeftLeg",
+        "right_hip",
+        "left_hip",
+    ),
+    "Spine2": (
+        "Chest",
+        "spine2",
+        "spine3",
+        "RightShoulder",
+        "LeftShoulder",
+        "right_collar",
+        "left_collar",
+    ),
+    "Chest": (
+        "Neck1",
+        "spine3",
+        "neck",
+        "RightShoulder",
+        "LeftShoulder",
+        "right_collar",
+        "left_collar",
+    ),
+    # Pico provides neck/head, while SOMA has Neck1/Neck2/Head/HeadEnd.
+    # Align the whole neck-to-head chain at Neck1 and leave Head's local
+    # twist in the template pose so missing head-end data cannot flip it.
+    "Neck1": (
+        "Head",
+        "neck",
+        "head",
+        "RightShoulder",
+        "LeftShoulder",
+        "right_collar",
+        "left_collar",
+    ),
 }
-SOMA_TWIST_REFERENCE_BONES = {
-    "Spine1": ("RightLeg", "LeftLeg", "right_hip", "left_hip"),
-    "Spine2": ("RightShoulder", "LeftShoulder", "right_collar", "left_collar"),
-    "Chest": ("RightShoulder", "LeftShoulder", "right_collar", "left_collar"),
-    "Neck1": ("RightShoulder", "LeftShoulder", "right_collar", "left_collar"),
-    "LeftShoulder": ("RightShoulder", "LeftShoulder", "right_collar", "left_collar"),
-    "LeftArm": ("LeftArm", "LeftShoulder", "left_shoulder", "left_collar"),
-    "LeftForeArm": ("LeftForeArm", "LeftArm", "left_elbow", "left_shoulder"),
-    "RightShoulder": ("LeftShoulder", "RightShoulder", "left_collar", "right_collar"),
-    "RightArm": ("RightArm", "RightShoulder", "right_shoulder", "right_collar"),
-    "RightForeArm": ("RightForeArm", "RightArm", "right_elbow", "right_shoulder"),
-    "LeftLeg": ("LeftLeg", "Hips", "left_hip", "pelvis"),
-    "LeftShin": ("LeftShin", "LeftLeg", "left_knee", "left_hip"),
-    "LeftFoot": ("LeftFoot", "LeftShin", "left_ankle", "left_knee"),
-    "RightLeg": ("RightLeg", "Hips", "right_hip", "pelvis"),
-    "RightShin": ("RightShin", "RightLeg", "right_knee", "right_hip"),
-    "RightFoot": ("RightFoot", "RightShin", "right_ankle", "right_knee"),
+SOMA_LIMB_FRAME_BONES = {
+    "LeftShoulder": (
+        "LeftArm",
+        "left_collar",
+        "left_shoulder",
+        "Chest",
+        "Neck1",
+        "spine3",
+        "neck",
+    ),
+    "LeftArm": (
+        "LeftForeArm",
+        "left_shoulder",
+        "left_elbow",
+        "LeftArm",
+        "LeftShoulder",
+        "left_shoulder",
+        "left_collar",
+    ),
+    "LeftForeArm": (
+        "LeftHand",
+        "left_elbow",
+        "left_wrist",
+        "LeftForeArm",
+        "LeftArm",
+        "left_elbow",
+        "left_shoulder",
+    ),
+    "RightShoulder": (
+        "RightArm",
+        "right_collar",
+        "right_shoulder",
+        "Chest",
+        "Neck1",
+        "spine3",
+        "neck",
+    ),
+    "RightArm": (
+        "RightForeArm",
+        "right_shoulder",
+        "right_elbow",
+        "RightArm",
+        "RightShoulder",
+        "right_shoulder",
+        "right_collar",
+    ),
+    "RightForeArm": (
+        "RightHand",
+        "right_elbow",
+        "right_wrist",
+        "RightForeArm",
+        "RightArm",
+        "right_elbow",
+        "right_shoulder",
+    ),
+    "LeftLeg": (
+        "LeftShin",
+        "left_hip",
+        "left_knee",
+        "LeftShin",
+        "LeftFoot",
+        "left_knee",
+        "left_ankle",
+    ),
+    "LeftShin": (
+        "LeftFoot",
+        "left_knee",
+        "left_ankle",
+        "LeftShin",
+        "LeftLeg",
+        "left_knee",
+        "left_hip",
+    ),
+    "LeftFoot": (
+        "LeftToeBase",
+        "left_ankle",
+        "left_foot",
+        "LeftFoot",
+        "LeftShin",
+        "left_ankle",
+        "left_knee",
+    ),
+    "RightLeg": (
+        "RightShin",
+        "right_hip",
+        "right_knee",
+        "RightShin",
+        "RightFoot",
+        "right_knee",
+        "right_ankle",
+    ),
+    "RightShin": (
+        "RightFoot",
+        "right_knee",
+        "right_ankle",
+        "RightShin",
+        "RightLeg",
+        "right_knee",
+        "right_hip",
+    ),
+    "RightFoot": (
+        "RightToeBase",
+        "right_ankle",
+        "right_foot",
+        "RightFoot",
+        "RightShin",
+        "right_ankle",
+        "right_knee",
+    ),
+    # Do not solve LeftHand/RightHand twist from a single endpoint. Without
+    # palm-width or finger-plane data, that twist is underconstrained and can
+    # make left/right palms flip inconsistently.
 }
+SOMA_FOOT_JOINTS = {"LeftFoot", "RightFoot"}
 
 SOMA_FINGER_JOINT_PREFIXES = (
     "LeftHandThumb",
@@ -743,7 +895,9 @@ def _rotation_to_bvh_zyx(rotation: sRot) -> np.ndarray:
     return rotation.as_euler("ZYX", degrees=True).astype(np.float64)
 
 
-def _normalize_vector(vector: np.ndarray) -> np.ndarray | None:
+def _normalize_vector(vector: np.ndarray | None) -> np.ndarray | None:
+    if vector is None:
+        return None
     vector = np.asarray(vector, dtype=np.float64)
     norm = np.linalg.norm(vector)
     if norm < 1e-8:
@@ -751,103 +905,52 @@ def _normalize_vector(vector: np.ndarray) -> np.ndarray | None:
     return vector / norm
 
 
-def _rotation_between_vectors(source: np.ndarray, target: np.ndarray) -> sRot | None:
-    source_n = _normalize_vector(source)
-    target_n = _normalize_vector(target)
-    if source_n is None or target_n is None:
+def _frame_from_lateral_up(lateral: np.ndarray, up: np.ndarray) -> sRot | None:
+    lateral_n = _normalize_vector(lateral)
+    up_n = _normalize_vector(up)
+    if lateral_n is None or up_n is None:
         return None
 
-    dot = float(np.clip(np.dot(source_n, target_n), -1.0, 1.0))
-    if dot > 1.0 - 1e-8:
-        return sRot.identity()
-    if dot < -1.0 + 1e-8:
-        axis = np.cross(source_n, np.array([1.0, 0.0, 0.0], dtype=np.float64))
-        if np.linalg.norm(axis) < 1e-6:
-            axis = np.cross(source_n, np.array([0.0, 1.0, 0.0], dtype=np.float64))
-        return sRot.from_rotvec(_normalize_vector(axis) * np.pi)
-
-    axis = np.cross(source_n, target_n)
-    angle = np.arccos(dot)
-    return sRot.from_rotvec(_normalize_vector(axis) * angle)
-
-
-def _vectors_form_plane(
-    primary: np.ndarray, secondary: np.ndarray, min_sin: float = 0.05
-) -> bool:
-    primary_n = _normalize_vector(primary)
-    secondary_n = _normalize_vector(secondary)
-    if primary_n is None or secondary_n is None:
-        return False
-    return np.linalg.norm(np.cross(primary_n, secondary_n)) > min_sin
-
-
-def _align_vector_sets(
-    source_vectors: list[np.ndarray],
-    target_vectors: list[np.ndarray],
-    weights: list[float] | None = None,
-):
-    valid_source = []
-    valid_target = []
-    valid_weights = []
-    for idx, (source, target) in enumerate(zip(source_vectors, target_vectors)):
-        source_n = _normalize_vector(source)
-        target_n = _normalize_vector(target)
-        if source_n is None or target_n is None:
-            continue
-        valid_source.append(source_n)
-        valid_target.append(target_n)
-        if weights is not None:
-            valid_weights.append(weights[idx])
-
-    if not valid_source:
-        return None
-    if len(valid_source) == 1:
-        return _rotation_between_vectors(valid_source[0], valid_target[0])
-
-    try:
-        align_weights = np.asarray(valid_weights) if weights is not None else None
-        rotation, _ = sRot.align_vectors(
-            np.stack(valid_target), np.stack(valid_source), weights=align_weights
-        )
-        return rotation
-    except ValueError:
+    lateral_projected = lateral_n - np.dot(lateral_n, up_n) * up_n
+    lateral_axis = _normalize_vector(lateral_projected)
+    if lateral_axis is None:
         return None
 
-
-def _align_primary_with_twist(
-    source_primary: np.ndarray,
-    target_primary: np.ndarray,
-    source_secondary: np.ndarray | None = None,
-    target_secondary: np.ndarray | None = None,
-):
-    primary_alignment = _rotation_between_vectors(source_primary, target_primary)
-    if primary_alignment is None:
+    forward_axis = _normalize_vector(np.cross(lateral_axis, up_n))
+    if forward_axis is None:
+        return None
+    up_axis = _normalize_vector(np.cross(forward_axis, lateral_axis))
+    if up_axis is None:
         return None
 
-    if not (
-        source_secondary is not None
-        and target_secondary is not None
-        and _vectors_form_plane(source_primary, source_secondary)
-        and _vectors_form_plane(target_primary, target_secondary)
-    ):
-        return primary_alignment
+    return sRot.from_matrix(np.column_stack((lateral_axis, up_axis, forward_axis)))
 
-    axis = _normalize_vector(target_primary)
-    if axis is None:
-        return primary_alignment
 
-    rotated_secondary = primary_alignment.apply(source_secondary)
-    source_projected = rotated_secondary - np.dot(rotated_secondary, axis) * axis
-    target_projected = target_secondary - np.dot(target_secondary, axis) * axis
-    source_projected_n = _normalize_vector(source_projected)
-    target_projected_n = _normalize_vector(target_projected)
-    if source_projected_n is None or target_projected_n is None:
-        return primary_alignment
+def _frame_from_primary_reference(primary: np.ndarray, reference: np.ndarray) -> sRot | None:
+    primary_axis = _normalize_vector(primary)
+    reference_n = _normalize_vector(reference)
+    if primary_axis is None or reference_n is None:
+        return None
 
-    sin_angle = np.dot(axis, np.cross(source_projected_n, target_projected_n))
-    cos_angle = np.clip(np.dot(source_projected_n, target_projected_n), -1.0, 1.0)
-    twist = sRot.from_rotvec(axis * np.arctan2(sin_angle, cos_angle))
-    return twist * primary_alignment
+    reference_projected = reference_n - np.dot(reference_n, primary_axis) * primary_axis
+    reference_axis = _normalize_vector(reference_projected)
+    if reference_axis is None:
+        return None
+
+    binormal_axis = _normalize_vector(np.cross(primary_axis, reference_axis))
+    if binormal_axis is None:
+        return None
+    reference_axis = _normalize_vector(np.cross(binormal_axis, primary_axis))
+    if reference_axis is None:
+        return None
+
+    return sRot.from_matrix(np.column_stack((primary_axis, reference_axis, binormal_axis)))
+
+
+def _alignment_from_frames(source_frame: sRot | None, target_frame: sRot | None) -> sRot | None:
+    if source_frame is None or target_frame is None:
+        return None
+    return target_frame * source_frame.inv()
 
 
 def _rotvec_to_bvh_zyx(rotvec: np.ndarray) -> np.ndarray:
@@ -1101,10 +1204,106 @@ class SomaBvhRecorder:
     @staticmethod
     def _body_vector_between(
         body_positions_bvh: np.ndarray, from_joint: str, to_joint: str
-    ) -> np.ndarray:
+    ) -> np.ndarray | None:
         from_idx = SMPL_FULL_JOINT_IDX[from_joint]
         to_idx = SMPL_FULL_JOINT_IDX[to_joint]
+        if from_idx >= body_positions_bvh.shape[0] or to_idx >= body_positions_bvh.shape[0]:
+            return None
         return body_positions_bvh[to_idx] - body_positions_bvh[from_idx]
+
+    def _body_forward_from_positions(self, body_positions_bvh: np.ndarray) -> np.ndarray | None:
+        forward_axes = []
+        hips_frame = _frame_from_lateral_up(
+            self._body_vector_between(body_positions_bvh, "right_hip", "left_hip"),
+            self._body_vector_between(body_positions_bvh, "pelvis", "spine1"),
+        )
+        chest_frame = _frame_from_lateral_up(
+            self._body_vector_between(body_positions_bvh, "right_collar", "left_collar"),
+            self._body_vector_between(body_positions_bvh, "spine3", "neck"),
+        )
+        if hips_frame is not None:
+            forward_axes.append(hips_frame.as_matrix()[:, 2])
+        if chest_frame is not None:
+            chest_forward = chest_frame.as_matrix()[:, 2]
+            if forward_axes and np.dot(forward_axes[0], chest_forward) < 0.0:
+                chest_forward = -chest_forward
+            forward_axes.append(chest_forward)
+        if not forward_axes:
+            return None
+        return _normalize_vector(np.mean(forward_axes, axis=0))
+
+    def _torso_alignment_from_spec(
+        self,
+        joint_name: str,
+        spec: tuple[str, str, str, str, str, str, str],
+        body_positions_bvh: np.ndarray,
+    ) -> sRot | None:
+        (
+            soma_child,
+            smpl_parent,
+            smpl_child,
+            soma_lateral_from,
+            soma_lateral_to,
+            smpl_lateral_from,
+            smpl_lateral_to,
+        ) = spec
+        source_up = self._base_vector_between(joint_name, soma_child)
+        target_up = self._body_vector_between(body_positions_bvh, smpl_parent, smpl_child)
+        source_lateral = self._base_vector_between(soma_lateral_from, soma_lateral_to)
+        target_lateral = self._body_vector_between(
+            body_positions_bvh, smpl_lateral_from, smpl_lateral_to
+        )
+
+        # --- DEBUG: print vectors for key torso joints ---
+        if hasattr(self, '_bvh_debug_count') and self._bvh_debug_count % 100 == 1:
+            if joint_name in ("Hips", "Spine1", "Chest", "Neck1"):
+                su = _normalize_vector(source_up) if source_up is not None else None
+                tu = _normalize_vector(target_up) if target_up is not None else None
+                sl = _normalize_vector(source_lateral) if source_lateral is not None else None
+                tl = _normalize_vector(target_lateral) if target_lateral is not None else None
+                print(f"  [BVH-ALIGN] {joint_name}:")
+                print(f"    source_up:      {su}")
+                print(f"    target_up:      {tu}")
+                print(f"    source_lateral: {sl}")
+                print(f"    target_lateral: {tl}")
+
+        return _alignment_from_frames(
+            _frame_from_lateral_up(source_lateral, source_up),
+            _frame_from_lateral_up(target_lateral, target_up),
+        )
+
+    def _limb_alignment_from_spec(
+        self,
+        joint_name: str,
+        spec: tuple[str, str, str, str, str, str, str],
+        body_positions_bvh: np.ndarray,
+        body_forward_bvh: np.ndarray | None = None,
+    ) -> sRot | None:
+        (
+            soma_child,
+            smpl_parent,
+            smpl_child,
+            soma_reference_from,
+            soma_reference_to,
+            smpl_reference_from,
+            smpl_reference_to,
+        ) = spec
+        source_primary = self._base_vector_between(joint_name, soma_child)
+        target_primary = self._body_vector_between(body_positions_bvh, smpl_parent, smpl_child)
+        source_reference = self._base_vector_between(soma_reference_from, soma_reference_to)
+        target_reference = self._body_vector_between(
+            body_positions_bvh, smpl_reference_from, smpl_reference_to
+        )
+        if joint_name in SOMA_FOOT_JOINTS and body_forward_bvh is not None:
+            target_primary_n = _normalize_vector(target_primary)
+            if target_primary_n is None:
+                target_primary = body_forward_bvh
+            elif np.dot(target_primary_n, body_forward_bvh) < 0.0:
+                target_primary = -target_primary
+        return _alignment_from_frames(
+            _frame_from_primary_reference(source_primary, source_reference),
+            _frame_from_primary_reference(target_primary, target_reference),
+        )
 
     def _get_joint_rotation(self, frame: np.ndarray, joint_name: str) -> sRot:
         channel_slice = self.channel_slices.get(joint_name)
@@ -1169,24 +1368,65 @@ class SomaBvhRecorder:
                 )
         return global_rotations, global_positions
 
+    def orientation_diagnostics(self, frame: np.ndarray) -> dict[str, float]:
+        _, global_positions = self._compute_global_pose(frame)
+        hips_frame = _frame_from_lateral_up(
+            global_positions["LeftLeg"] - global_positions["RightLeg"],
+            global_positions["Spine1"] - global_positions["Hips"],
+        )
+        chest_frame = _frame_from_lateral_up(
+            global_positions["LeftShoulder"] - global_positions["RightShoulder"],
+            global_positions["Neck1"] - global_positions["Chest"],
+        )
+        foot_frame_left = _frame_from_primary_reference(
+            global_positions["LeftToeBase"] - global_positions["LeftFoot"],
+            global_positions["LeftShin"] - global_positions["LeftFoot"],
+        )
+        foot_frame_right = _frame_from_primary_reference(
+            global_positions["RightToeBase"] - global_positions["RightFoot"],
+            global_positions["RightShin"] - global_positions["RightFoot"],
+        )
+
+        diagnostics: dict[str, float] = {}
+        if hips_frame is not None and chest_frame is not None:
+            hips_forward = hips_frame.as_matrix()[:, 2]
+            chest_forward = chest_frame.as_matrix()[:, 2]
+            diagnostics["hips_forward_dot_chest_forward"] = float(
+                np.dot(hips_forward, chest_forward)
+            )
+
+        foot_forwards = []
+        if foot_frame_left is not None:
+            foot_forwards.append(foot_frame_left.as_matrix()[:, 0])
+        if foot_frame_right is not None:
+            foot_forwards.append(foot_frame_right.as_matrix()[:, 0])
+        if hips_frame is not None and foot_forwards:
+            foot_forward = _normalize_vector(np.mean(foot_forwards, axis=0))
+            if foot_forward is not None:
+                diagnostics["hips_forward_dot_foot_forward"] = float(
+                    np.dot(hips_frame.as_matrix()[:, 2], foot_forward)
+                )
+
+        hip_lateral = _normalize_vector(
+            global_positions["LeftLeg"] - global_positions["RightLeg"]
+        )
+        shoulder_lateral = _normalize_vector(
+            global_positions["LeftShoulder"] - global_positions["RightShoulder"]
+        )
+        if hip_lateral is not None and shoulder_lateral is not None:
+            diagnostics["hip_lateral_dot_shoulder_lateral"] = float(
+                np.dot(hip_lateral, shoulder_lateral)
+            )
+        return diagnostics
+
     def _estimate_hips_rotation(
         self,
         body_positions_bvh: np.ndarray,
         body_quat_w: np.ndarray,
     ) -> sRot:
-        source_vectors = []
-        target_vectors = []
-        for soma_child, smpl_parent, smpl_child in SOMA_HIPS_ALIGNMENT_BONES:
-            parent_idx = SMPL_FULL_JOINT_IDX[smpl_parent]
-            child_idx = SMPL_FULL_JOINT_IDX[smpl_child]
-            source_vectors.append(
-                self.base_global_rotations["Hips"].apply(
-                    self._get_joint_local_position(self.base_frame, soma_child)
-                )
-            )
-            target_vectors.append(body_positions_bvh[child_idx] - body_positions_bvh[parent_idx])
-
-        alignment = _align_vector_sets(source_vectors, target_vectors)
+        alignment = self._torso_alignment_from_spec(
+            "Hips", SOMA_HIPS_FRAME_BONE, body_positions_bvh
+        )
         if alignment is not None:
             return alignment * self.base_global_rotations.get("Hips", sRot.identity())
 
@@ -1197,11 +1437,12 @@ class SomaBvhRecorder:
         hip_delta_bvh = _robot_rotation_to_soma_bvh(hip_delta)
         return hip_delta_bvh * self.base_rotations.get("Hips", sRot.identity())
 
-    def _apply_direction_bone_rotations(
+    def _apply_frame_bone_rotations(
         self, frame: np.ndarray, body_positions_bvh: np.ndarray
     ):
         global_rotations = {}
         global_positions = {}
+        body_forward_bvh = self._body_forward_from_positions(body_positions_bvh)
         for joint_name in self.channel_slices:
             parent_name = self.joint_parents.get(joint_name)
             parent_rotation = (
@@ -1210,44 +1451,26 @@ class SomaBvhRecorder:
                 else sRot.identity()
             )
 
-            if joint_name in SOMA_DIRECTION_BONES:
-                soma_child, smpl_parent, smpl_child = SOMA_DIRECTION_BONES[joint_name]
-                if soma_child in self.channel_slices:
-                    source_vector = self._base_vector_between(joint_name, soma_child)
-                    target_vector = self._body_vector_between(
-                        body_positions_bvh, smpl_parent, smpl_child
-                    )
-                    source_twist = None
-                    target_twist = None
-                    if joint_name in SOMA_TWIST_REFERENCE_BONES:
-                        (
-                            source_ref_from,
-                            source_ref_to,
-                            target_ref_from,
-                            target_ref_to,
-                        ) = SOMA_TWIST_REFERENCE_BONES[joint_name]
-                        source_twist = self._base_vector_between(
-                            source_ref_from, source_ref_to
-                        )
-                        target_twist = self._body_vector_between(
-                            body_positions_bvh, target_ref_from, target_ref_to
-                        )
-                    alignment = _align_primary_with_twist(
-                        source_vector,
-                        target_vector,
-                        source_twist,
-                        target_twist,
-                    )
-                    if alignment is not None:
-                        desired_global_rotation = (
-                            alignment * self.base_global_rotations[joint_name]
-                        )
-                        local_rotation = parent_rotation.inv() * desired_global_rotation
-                        self._set_joint_rotation(
-                            frame,
-                            joint_name,
-                            _rotation_to_bvh_zyx(local_rotation),
-                        )
+            alignment = None
+            if joint_name in SOMA_TORSO_FRAME_BONES:
+                alignment = self._torso_alignment_from_spec(
+                    joint_name, SOMA_TORSO_FRAME_BONES[joint_name], body_positions_bvh
+                )
+            elif joint_name in SOMA_LIMB_FRAME_BONES:
+                alignment = self._limb_alignment_from_spec(
+                    joint_name,
+                    SOMA_LIMB_FRAME_BONES[joint_name],
+                    body_positions_bvh,
+                    body_forward_bvh,
+                )
+            if alignment is not None:
+                desired_global_rotation = alignment * self.base_global_rotations[joint_name]
+                local_rotation = parent_rotation.inv() * desired_global_rotation
+                self._set_joint_rotation(
+                    frame,
+                    joint_name,
+                    _rotation_to_bvh_zyx(local_rotation),
+                )
 
             local_rotation = self._get_joint_rotation(frame, joint_name)
             local_position = self._get_joint_local_position(frame, joint_name)
@@ -1295,24 +1518,67 @@ class SomaBvhRecorder:
         body_poses_np = np.asarray(body_poses_np, dtype=np.float64)
         smpl_pose_np = np.asarray(smpl_pose_np, dtype=np.float64)
         body_quat_w = np.asarray(body_quat_w, dtype=np.float64)
-        min_body_joints = max(SMPL_FULL_JOINT_IDX.values()) + 1
+        min_body_joints = max(
+            SMPL_FULL_JOINT_IDX[name] for name in SMPL_REQUIRED_BODY_JOINTS
+        ) + 1
         if body_poses_np.shape[0] < min_body_joints or smpl_pose_np.shape[0] < 21:
             return
 
         frame = self.base_frame.copy()
-        body_positions_bvh = _unity_positions_to_soma_bvh(body_poses_np[:, :3])
+
+        # --- XRT global quaternions as alignment rotations ---
+        # Use raw XRT quaternions directly — the base_global_rotations
+        # already encode the BVH rest frame, so the formula
+        # desired_global = alignment * base_global handles frame conversion
+        # implicitly.
+        xrt_quats_wxyz = body_poses_np[:, [6, 3, 4, 5]]
+        xrt_bvh_rots = sRot.from_quat(xrt_quats_wxyz, scalar_first=True)
+
+        # --- Root position ---
         root_bvh = _unity_position_to_soma_bvh(body_poses_np[0, :3])
         if self.first_root_bvh is None:
             self.first_root_bvh = root_bvh
-
-        hip_position_cm = self.base_positions.get("Hips", np.zeros(3, dtype=np.float64)) + (
-            root_bvh - self.first_root_bvh
-        ) * self.root_scale
-        hip_rotation_out = self._estimate_hips_rotation(body_positions_bvh, body_quat_w)
-
+        hip_position_cm = self.base_positions.get(
+            "Hips", np.zeros(3, dtype=np.float64)
+        ) + (root_bvh - self.first_root_bvh) * self.root_scale
         self._set_joint_position(frame, "Hips", hip_position_cm)
-        self._set_joint_rotation(frame, "Hips", _rotation_to_bvh_zyx(hip_rotation_out))
-        self._apply_direction_bone_rotations(frame, body_positions_bvh)
+
+        # --- Apply SMPL rotations to BVH joints ---
+        # For each mapped BVH joint with SMPL index i:
+        #   alignment = xrt_bvh_rots[i]  (XRT global rot in BVH frame)
+        #   desired_global = alignment * base_global_rotations[joint]
+        #   local = parent_global.inv() * desired_global
+        global_rotations = {}
+        global_positions = {}
+        for joint_name in self.channel_slices:
+            parent_name = self.joint_parents.get(joint_name)
+            parent_rotation = (
+                global_rotations[parent_name]
+                if parent_name is not None
+                else sRot.identity()
+            )
+
+            smpl_idx = _BVH_TO_SMPL_IDX.get(joint_name)
+            if smpl_idx is not None and smpl_idx < len(xrt_bvh_rots):
+                alignment = xrt_bvh_rots[smpl_idx]
+                desired_global = alignment.inv() * self.base_global_rotations[joint_name]
+                local_rotation = parent_rotation.inv() * desired_global
+                self._set_joint_rotation(
+                    frame, joint_name, _rotation_to_bvh_zyx(local_rotation)
+                )
+
+            # Accumulate globals from frame (handles both mapped and unmapped joints)
+            local_rotation = self._get_joint_rotation(frame, joint_name)
+            local_position = self._get_joint_local_position(frame, joint_name)
+            if parent_name is None:
+                global_rotations[joint_name] = local_rotation
+                global_positions[joint_name] = local_position
+            else:
+                parent_position = global_positions[parent_name]
+                global_rotations[joint_name] = parent_rotation * local_rotation
+                global_positions[joint_name] = parent_position + parent_rotation.apply(
+                    local_position
+                )
 
         self._zero_finger_channels(frame)
         self.frames.append(frame)
@@ -1351,16 +1617,26 @@ class SomaBvhRecorder:
         self.session_active = False
 
 
+_debug_frame_count = 0
+_JOINT_NAMES = [
+    "pelvis", "l_hip", "r_hip", "spine1", "l_knee", "r_knee", "spine2",
+    "l_ankle", "r_ankle", "spine3", "l_foot", "r_foot", "neck",
+    "l_collar", "r_collar", "head", "l_shoulder", "r_shoulder",
+    "l_elbow", "r_elbow", "l_wrist", "r_wrist", "l_hand", "r_hand",
+]
+
+
 def compute_from_body_poses(parent_indices: list, device, body_poses_np: np.ndarray):
     """
     Compute local joints and body orientation from provided body_poses_np.
     """
+    global _debug_frame_count
     positions = body_poses_np[:, :3]
     global_quats = body_poses_np[:, [6, 3, 4, 5]]
 
-    # Convert to local rotations
-    global_rots = sRot.from_quat(global_quats, scalar_first=True)
-    global_rots = global_rots * sRot.from_euler("y", 180, degrees=True)
+    # Pre-multiply ALL global rotations by R90_Y to fix root facing.
+    _facing = sRot.from_euler("y", 90, degrees=True)
+    global_rots = _facing * sRot.from_quat(global_quats, scalar_first=True)
 
     local_rots = []
     for i in range(24):
@@ -1371,6 +1647,23 @@ def compute_from_body_poses(parent_indices: list, device, body_poses_np: np.ndar
             local_rots.append(local_rot)
 
     pose_aa = np.array([rot.as_rotvec() for rot in local_rots])
+
+    # NOTE: No handedness conversion needed - XRT local rotations are
+    # directly compatible with SMPL FK. Debug data confirmed raw negative
+    # neck/head rx values produce correct forward orientation.
+
+    # --- DEBUG: print every 100 frames ---
+    _debug_frame_count += 1
+    if _debug_frame_count % 100 == 1:
+        print(f"\n===== DEBUG FRAME {_debug_frame_count} =====")
+        print(f"Raw XRT root quat (wxyz): {global_quats[0]}")
+        print(f"Root global euler (xyz°): {sRot.from_quat(global_quats[0], scalar_first=True).as_euler('xyz', degrees=True)}")
+        print(f"\nLocal rotations (axis-angle, AFTER handedness fix):")
+        for i in range(min(22, len(pose_aa))):
+            aa = pose_aa[i]
+            angle_deg = np.degrees(np.linalg.norm(aa))
+            print(f"  [{i:2d}] {_JOINT_NAMES[i]:12s}: [{aa[0]:+7.3f}, {aa[1]:+7.3f}, {aa[2]:+7.3f}]  ({angle_deg:6.1f}°)")
+        print("=" * 40)
 
     body_pose = torch.from_numpy(pose_aa[1:].flatten()).float().to(device).unsqueeze(0)
     global_orient = torch.from_numpy(pose_aa[0]).float().to(device).unsqueeze(0)

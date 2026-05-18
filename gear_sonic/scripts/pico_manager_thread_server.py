@@ -847,6 +847,16 @@ SOMA_LIMB_FRAME_BONES = {
     # make left/right palms flip inconsistently.
 }
 SOMA_FOOT_JOINTS = {"LeftFoot", "RightFoot"}
+SOMA_ARM_POSITION_JOINTS = {
+    "LeftShoulder",
+    "LeftArm",
+    "LeftForeArm",
+    "LeftHand",
+    "RightShoulder",
+    "RightArm",
+    "RightForeArm",
+    "RightHand",
+}
 
 SOMA_FINGER_JOINT_PREFIXES = (
     "LeftHandThumb",
@@ -1543,11 +1553,13 @@ class SomaBvhRecorder:
         ) + (root_bvh - self.first_root_bvh) * self.root_scale
         self._set_joint_position(frame, "Hips", hip_position_cm)
 
-        # --- Apply SMPL rotations to BVH joints ---
-        # For each mapped BVH joint with SMPL index i:
-        #   alignment = xrt_bvh_rots[i]  (XRT global rot in BVH frame)
-        #   desired_global = alignment * base_global_rotations[joint]
-        #   local = parent_global.inv() * desired_global
+        # Arm XRT quaternions use a different local frame than SOMA's arm
+        # bones. Keep the torso/lower-body quaternion path that is currently
+        # working, but solve arms from joint positions so shoulder->elbow and
+        # elbow->wrist point in the tracked directions.
+        body_positions_bvh = _unity_positions_to_soma_bvh(body_poses_np[:, :3])
+
+        # --- Apply rotations to BVH joints ---
         global_rotations = {}
         global_positions = {}
         for joint_name in self.channel_slices:
@@ -1558,14 +1570,31 @@ class SomaBvhRecorder:
                 else sRot.identity()
             )
 
-            smpl_idx = _BVH_TO_SMPL_IDX.get(joint_name)
-            if smpl_idx is not None and smpl_idx < len(xrt_bvh_rots):
-                alignment = xrt_bvh_rots[smpl_idx]
-                desired_global = alignment.inv() * self.base_global_rotations[joint_name]
+            arm_alignment = None
+            if joint_name in SOMA_ARM_POSITION_JOINTS:
+                arm_spec = SOMA_LIMB_FRAME_BONES.get(joint_name)
+                if arm_spec is not None:
+                    arm_alignment = self._limb_alignment_from_spec(
+                        joint_name,
+                        arm_spec,
+                        body_positions_bvh,
+                    )
+
+            if arm_alignment is not None:
+                desired_global = arm_alignment * self.base_global_rotations[joint_name]
                 local_rotation = parent_rotation.inv() * desired_global
                 self._set_joint_rotation(
                     frame, joint_name, _rotation_to_bvh_zyx(local_rotation)
                 )
+            elif joint_name not in SOMA_ARM_POSITION_JOINTS:
+                smpl_idx = _BVH_TO_SMPL_IDX.get(joint_name)
+                if smpl_idx is not None and smpl_idx < len(xrt_bvh_rots):
+                    alignment = xrt_bvh_rots[smpl_idx]
+                    desired_global = alignment.inv() * self.base_global_rotations[joint_name]
+                    local_rotation = parent_rotation.inv() * desired_global
+                    self._set_joint_rotation(
+                        frame, joint_name, _rotation_to_bvh_zyx(local_rotation)
+                    )
 
             # Accumulate globals from frame (handles both mapped and unmapped joints)
             local_rotation = self._get_joint_rotation(frame, joint_name)

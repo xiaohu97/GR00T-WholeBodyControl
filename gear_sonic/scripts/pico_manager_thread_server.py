@@ -1617,20 +1617,11 @@ class SomaBvhRecorder:
         self.session_active = False
 
 
-_debug_frame_count = 0
-_JOINT_NAMES = [
-    "pelvis", "l_hip", "r_hip", "spine1", "l_knee", "r_knee", "spine2",
-    "l_ankle", "r_ankle", "spine3", "l_foot", "r_foot", "neck",
-    "l_collar", "r_collar", "head", "l_shoulder", "r_shoulder",
-    "l_elbow", "r_elbow", "l_wrist", "r_wrist", "l_hand", "r_hand",
-]
-
 
 def compute_from_body_poses(parent_indices: list, device, body_poses_np: np.ndarray):
     """
     Compute local joints and body orientation from provided body_poses_np.
     """
-    global _debug_frame_count
     positions = body_poses_np[:, :3]
     global_quats = body_poses_np[:, [6, 3, 4, 5]]
 
@@ -1652,18 +1643,6 @@ def compute_from_body_poses(parent_indices: list, device, body_poses_np: np.ndar
     # directly compatible with SMPL FK. Debug data confirmed raw negative
     # neck/head rx values produce correct forward orientation.
 
-    # --- DEBUG: print every 100 frames ---
-    _debug_frame_count += 1
-    if _debug_frame_count % 100 == 1:
-        print(f"\n===== DEBUG FRAME {_debug_frame_count} =====")
-        print(f"Raw XRT root quat (wxyz): {global_quats[0]}")
-        print(f"Root global euler (xyz°): {sRot.from_quat(global_quats[0], scalar_first=True).as_euler('xyz', degrees=True)}")
-        print(f"\nLocal rotations (axis-angle, AFTER handedness fix):")
-        for i in range(min(22, len(pose_aa))):
-            aa = pose_aa[i]
-            angle_deg = np.degrees(np.linalg.norm(aa))
-            print(f"  [{i:2d}] {_JOINT_NAMES[i]:12s}: [{aa[0]:+7.3f}, {aa[1]:+7.3f}, {aa[2]:+7.3f}]  ({angle_deg:6.1f}°)")
-        print("=" * 40)
 
     body_pose = torch.from_numpy(pose_aa[1:].flatten()).float().to(device).unsqueeze(0)
     global_orient = torch.from_numpy(pose_aa[0]).float().to(device).unsqueeze(0)

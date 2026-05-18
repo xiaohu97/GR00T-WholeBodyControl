@@ -451,32 +451,11 @@ python gear_sonic/scripts/pico_manager_thread_server.py --manager \
 
 直接记录 SOMA Retargeter 可读取的 BVH：
 ```bash
-python gear_sonic/scripts/pico_manager_thread_server.py --manager \
+python gear_sonic/scripts/pico_manager_thread_server_hu.py --manager \
     --record_dir ./pico_records \
     --record_format soma_bvh \
     --vis_vr3pt --vis_smpl
 ```
-
-如果同时需要 `.npz` 和 SOMA BVH：
-```bash
-python gear_sonic/scripts/pico_manager_thread_server.py --manager \
-    --record_dir ./pico_records \
-    --record_format both \
-    --vis_vr3pt --vis_smpl
-```
-
-SOMA BVH 会保存为 `./pico_records/soma_session_YYYYmmdd_HHMMSS.bvh`，退出
-`POSE` 模式或结束程序时写完文件。进入 `POSE` 后的第一帧会作为 BVH 的位置零点；
-身体、腿部和手臂姿态会按每帧 Pico/SMPL 全局关节位置重建稳定三轴
-frame，主要使用 0-21 的身体主关节。骨盆/胸腔使用左右方向和向上方向，腿部使用
-hip-knee-ankle 两骨段弯曲平面，避免膝关节 twist 反向；脚部优先保留
-ankle-to-toe 方向，只在检测到 toe forward 与骨盆/胸腔 forward 反向时翻正。
-手掌第一版不再用单个 hand endpoint 强解掌心 twist，因为缺少掌宽/指根平面时
-左右手很容易翻转；手指仍保持零姿态。
-BVH 使用 SOMA 示例动作一致的 Y-up、Z-forward 源坐标；SOMA 转换器会再转到内部/G1
-坐标。`.npz` 里会额外保存原始 `body_poses_np` 和 `timestamp_ns`，方便后处理或调试。
-注意：SOMA 默认 Unitree G1 29DOF retarget 配置没有头部关节 IK，头部姿态只会写入
-BVH 源人体，转换到 G1 CSV 时不能让机器人头部独立跟随。
 
 如果只想跑最简模式，也可以：
 

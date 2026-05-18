@@ -857,6 +857,19 @@ SOMA_ARM_POSITION_JOINTS = {
     "RightForeArm",
     "RightHand",
 }
+SOMA_FOREARM_SWING_ONLY_JOINTS = {"LeftForeArm", "RightForeArm"}
+SOMA_ARM_FORWARD_FLIP_BODY_JOINTS = (
+    "left_collar",
+    "right_collar",
+    "left_shoulder",
+    "right_shoulder",
+    "left_elbow",
+    "right_elbow",
+    "left_wrist",
+    "right_wrist",
+    "left_hand",
+    "right_hand",
+)
 
 SOMA_FINGER_JOINT_PREFIXES = (
     "LeftHandThumb",
@@ -961,6 +974,32 @@ def _alignment_from_frames(source_frame: sRot | None, target_frame: sRot | None)
     if source_frame is None or target_frame is None:
         return None
     return target_frame * source_frame.inv()
+
+
+def _alignment_from_primary(source_primary: np.ndarray, target_primary: np.ndarray) -> sRot | None:
+    source_axis = _normalize_vector(source_primary)
+    target_axis = _normalize_vector(target_primary)
+    if source_axis is None or target_axis is None:
+        return None
+
+    dot = float(np.clip(np.dot(source_axis, target_axis), -1.0, 1.0))
+    if dot > 1.0 - 1e-8:
+        return sRot.identity()
+
+    axis = np.cross(source_axis, target_axis)
+    axis_norm = np.linalg.norm(axis)
+    if axis_norm < 1e-8:
+        fallback_axis = np.cross(source_axis, np.array([1.0, 0.0, 0.0]))
+        if np.linalg.norm(fallback_axis) < 1e-8:
+            fallback_axis = np.cross(source_axis, np.array([0.0, 1.0, 0.0]))
+        axis = _normalize_vector(fallback_axis)
+        if axis is None:
+            return None
+        return sRot.from_rotvec(axis * np.pi)
+
+    axis = axis / axis_norm
+    angle = np.arctan2(axis_norm, dot)
+    return sRot.from_rotvec(axis * angle)
 
 
 def _rotvec_to_bvh_zyx(rotvec: np.ndarray) -> np.ndarray:
@@ -1242,6 +1281,26 @@ class SomaBvhRecorder:
             return None
         return _normalize_vector(np.mean(forward_axes, axis=0))
 
+    def _arm_positions_for_bvh_body_frame(
+        self, body_positions_bvh: np.ndarray
+    ) -> np.ndarray:
+        arm_positions_bvh = body_positions_bvh.copy()
+        body_forward_bvh = self._body_forward_from_positions(body_positions_bvh)
+        if body_forward_bvh is None:
+            return arm_positions_bvh
+
+        root_idx = SMPL_FULL_JOINT_IDX["pelvis"]
+        root_position = body_positions_bvh[root_idx]
+        for joint_name in SOMA_ARM_FORWARD_FLIP_BODY_JOINTS:
+            joint_idx = SMPL_FULL_JOINT_IDX.get(joint_name)
+            if joint_idx is None or joint_idx >= arm_positions_bvh.shape[0]:
+                continue
+            delta = arm_positions_bvh[joint_idx] - root_position
+            arm_positions_bvh[joint_idx] -= (
+                2.0 * np.dot(delta, body_forward_bvh) * body_forward_bvh
+            )
+        return arm_positions_bvh
+
     def _torso_alignment_from_spec(
         self,
         joint_name: str,
@@ -1304,6 +1363,8 @@ class SomaBvhRecorder:
         target_reference = self._body_vector_between(
             body_positions_bvh, smpl_reference_from, smpl_reference_to
         )
+        if joint_name in SOMA_FOREARM_SWING_ONLY_JOINTS:
+            return _alignment_from_primary(source_primary, target_primary)
         if joint_name in SOMA_FOOT_JOINTS and body_forward_bvh is not None:
             target_primary_n = _normalize_vector(target_primary)
             if target_primary_n is None:
@@ -1558,6 +1619,7 @@ class SomaBvhRecorder:
         # working, but solve arms from joint positions so shoulder->elbow and
         # elbow->wrist point in the tracked directions.
         body_positions_bvh = _unity_positions_to_soma_bvh(body_poses_np[:, :3])
+        arm_positions_bvh = self._arm_positions_for_bvh_body_frame(body_positions_bvh)
 
         # --- Apply rotations to BVH joints ---
         global_rotations = {}
@@ -1577,7 +1639,7 @@ class SomaBvhRecorder:
                     arm_alignment = self._limb_alignment_from_spec(
                         joint_name,
                         arm_spec,
-                        body_positions_bvh,
+                        arm_positions_bvh,
                     )
 
             if arm_alignment is not None:

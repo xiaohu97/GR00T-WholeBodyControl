@@ -451,11 +451,13 @@ python gear_sonic/scripts/pico_manager_thread_server.py --manager \
 
 直接记录 SOMA Retargeter 可读取的 BVH：
 ```bash
-python gear_sonic/scripts/pico_manager_thread_server_hu.py --manager \
+python gear_sonic/scripts/pico_manager_thread_server.py --manager \
     --record_dir ./pico_records \
     --record_format soma_bvh \
     --vis_vr3pt --vis_smpl
 ```
+
+如果想同时保留当前 `.npz` 批数据和 SOMA BVH，把 `--record_format` 改成 `both`。
 
 如果只想跑最简模式，也可以：
 

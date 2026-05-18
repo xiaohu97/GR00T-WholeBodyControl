@@ -774,7 +774,22 @@ SOMA_LIMB_FRAME_BONES = {
     ),
 }
 SOMA_FOOT_JOINTS = {"LeftFoot", "RightFoot"}
-SOMA_FOREARM_SWING_ONLY_JOINTS = {"LeftForeArm", "RightForeArm"}
+SOMA_ARM_SWING_ONLY_JOINTS = {
+    "LeftShoulder",
+    "LeftArm",
+    "LeftForeArm",
+    "RightShoulder",
+    "RightArm",
+    "RightForeArm",
+}
+SOMA_UPPER_ARM_LOCAL_ROLL_CORRECTION_DEG = {
+    "LeftArm": -90.0,
+    "RightArm": 90.0,
+}
+SOMA_HAND_LOCAL_ROLL_CORRECTION_DEG = {
+    "LeftHand": -90.0,
+    "RightHand": 90.0,
+}
 SOMA_FINGER_JOINT_PREFIXES = (
     "LeftHandThumb",
     "LeftHandIndex",
@@ -1118,6 +1133,23 @@ class SomaBvhRecorder:
             if joint_name.startswith(SOMA_FINGER_JOINT_PREFIXES):
                 self._set_joint_rotation(frame, joint_name, np.zeros(3, dtype=np.float64))
 
+    def _apply_joint_local_roll_correction(
+        self, frame: np.ndarray, joint_name: str, angle_deg: float
+    ):
+        if joint_name not in self.channel_slices:
+            return
+        local_rotation = self._get_joint_rotation(frame, joint_name)
+        correction = sRot.from_euler("X", angle_deg, degrees=True)
+        self._set_joint_rotation(
+            frame,
+            joint_name,
+            _rotation_to_bvh_zyx(local_rotation * correction),
+        )
+
+    def _apply_hand_roll_corrections(self, frame: np.ndarray):
+        for joint_name, angle_deg in SOMA_HAND_LOCAL_ROLL_CORRECTION_DEG.items():
+            self._apply_joint_local_roll_correction(frame, joint_name, angle_deg)
+
     def _cache_base_transforms(self):
         assert self.base_frame is not None
         self.base_rotations = {}
@@ -1229,7 +1261,7 @@ class SomaBvhRecorder:
         target_reference = self._body_vector_between(
             body_positions_bvh, smpl_reference_from, smpl_reference_to
         )
-        if joint_name in SOMA_FOREARM_SWING_ONLY_JOINTS:
+        if joint_name in SOMA_ARM_SWING_ONLY_JOINTS:
             return _alignment_from_primary(source_primary, target_primary)
         if joint_name in SOMA_FOOT_JOINTS and body_forward_bvh is not None:
             target_primary_n = _normalize_vector(target_primary)
@@ -1358,6 +1390,12 @@ class SomaBvhRecorder:
                     joint_name,
                     _rotation_to_bvh_zyx(local_rotation),
                 )
+            if joint_name in SOMA_UPPER_ARM_LOCAL_ROLL_CORRECTION_DEG:
+                self._apply_joint_local_roll_correction(
+                    frame,
+                    joint_name,
+                    SOMA_UPPER_ARM_LOCAL_ROLL_CORRECTION_DEG[joint_name],
+                )
 
             local_rotation = self._get_joint_rotation(frame, joint_name)
             local_position = self._get_joint_local_position(frame, joint_name)
@@ -1431,6 +1469,7 @@ class SomaBvhRecorder:
         if body_positions_bvh is not None:
             self._apply_frame_bone_rotations(frame, body_positions_bvh)
 
+        self._apply_hand_roll_corrections(frame)
         self._zero_finger_channels(frame)
         self.frames.append(frame)
 

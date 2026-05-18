@@ -1896,6 +1896,29 @@ def _interp_pose_axis_angle(
     return out_pose
 
 
+def _interp_body_poses_np(
+    prev_body_poses_np: np.ndarray, curr_body_poses_np: np.ndarray, alpha: float
+) -> np.ndarray:
+    """
+    Interpolate raw Pico body poses. Positions are linear, quaternions are
+    lerp-normalized in Pico's scalar-last [qx, qy, qz, qw] order.
+    """
+    prev_body_poses_np = np.asarray(prev_body_poses_np, dtype=np.float64)
+    curr_body_poses_np = np.asarray(curr_body_poses_np, dtype=np.float64)
+    if prev_body_poses_np.shape != curr_body_poses_np.shape or prev_body_poses_np.shape[-1] < 7:
+        return curr_body_poses_np.copy()
+
+    out = (1.0 - alpha) * prev_body_poses_np + alpha * curr_body_poses_np
+    joint_count = prev_body_poses_np.shape[0]
+    for joint_idx in range(joint_count):
+        out[joint_idx, 3:7] = _quat_lerp_normalized(
+            prev_body_poses_np[joint_idx, 3:7],
+            curr_body_poses_np[joint_idx, 3:7],
+            alpha,
+        )
+    return out
+
+
 class PicoReader:
     """
     Background reader that pulls Pico/XRT data as fast as possible and computes dt/FPS.
@@ -2408,6 +2431,7 @@ class PoseStreamer:
         self.prev_smpl_pose_np = None
         self.prev_smpl_joints_np = None
         self.prev_body_quat_np = None
+        self.prev_body_poses_np = None
         self.next_target_ns = None
         self.frame_start = time.time()
 
@@ -2433,6 +2457,7 @@ class PoseStreamer:
         self.prev_smpl_pose_np = None
         self.prev_smpl_joints_np = None
         self.prev_body_quat_np = None
+        self.prev_body_poses_np = None
         self.next_target_ns = None
         self.buffer_cleared = True
         self.step = 0
@@ -2487,6 +2512,7 @@ class PoseStreamer:
         body_quat_np = (
             latest_data["global_orient_quat"].detach().cpu().numpy()[0].astype(np.float32)
         )
+        curr_body_poses_np = np.asarray(sample["body_poses_np"], dtype=np.float32)
         curr_stamp_ns = int(sample.get("timestamp_ns", 0))
         step_ns = int(1e9 / max(1, self.target_fps))
         if self.prev_stamp_ns is None:
@@ -2494,6 +2520,7 @@ class PoseStreamer:
             self.prev_smpl_pose_np = smpl_pose_np
             self.prev_smpl_joints_np = smpl_joints_np
             self.prev_body_quat_np = body_quat_np
+            self.prev_body_poses_np = curr_body_poses_np
             self.next_target_ns = curr_stamp_ns
             return
         if curr_stamp_ns <= self.prev_stamp_ns:
@@ -2504,8 +2531,15 @@ class PoseStreamer:
             self.next_target_ns = self.prev_stamp_ns
         if self.next_target_ns > curr_stamp_ns:
             return
+        target_ns_values = []
+        target_ns = self.next_target_ns
+        while target_ns <= curr_stamp_ns:
+            target_ns_values.append(target_ns)
+            target_ns += step_ns
+        if not target_ns_values:
+            return
         denom = float(curr_stamp_ns - self.prev_stamp_ns)
-        alpha = float(self.next_target_ns - self.prev_stamp_ns) / denom if denom > 0.0 else 1.0
+        alpha = float(target_ns_values[0] - self.prev_stamp_ns) / denom if denom > 0.0 else 1.0
         if alpha < 0.0:
             alpha = 0.0
         elif alpha > 1.0:
@@ -2600,6 +2634,32 @@ class PoseStreamer:
         pico_fps = float(sample.get("fps", 0.0))
         N = len(self.frame_buffer["frame_index"])
 
+        if self.soma_bvh_recorder is not None and self.prev_body_poses_np is not None:
+            for bvh_target_ns in target_ns_values:
+                bvh_alpha = (
+                    float(bvh_target_ns - self.prev_stamp_ns) / denom
+                    if denom > 0.0
+                    else 1.0
+                )
+                if bvh_alpha < 0.0:
+                    bvh_alpha = 0.0
+                elif bvh_alpha > 1.0:
+                    bvh_alpha = 1.0
+                bvh_body_poses_np = _interp_body_poses_np(
+                    self.prev_body_poses_np, curr_body_poses_np, bvh_alpha
+                )
+                bvh_pose = _interp_pose_axis_angle(
+                    self.prev_smpl_pose_np, smpl_pose_np, bvh_alpha
+                ).astype(np.float32)
+                bvh_body_quat = _quat_lerp_normalized(
+                    self.prev_body_quat_np, body_quat_np, bvh_alpha
+                ).astype(np.float32)
+                self.soma_bvh_recorder.record_frame(
+                    body_poses_np=bvh_body_poses_np,
+                    smpl_pose_np=bvh_pose,
+                    body_quat_w=bvh_body_quat,
+                )
+
         # Wait for buffer to be completely filled before sending first message after clearing
         buffer_is_full = len(self.frame_buffer["frame_index"]) >= self.num_frames_to_send
         if buffer_is_full and self.buffer_cleared:
@@ -2645,13 +2705,6 @@ class PoseStreamer:
             packed_message = pack_pose_message(numpy_data, topic="pose")
             self.socket.send(packed_message)
 
-            if self.soma_bvh_recorder is not None:
-                self.soma_bvh_recorder.record_frame(
-                    body_poses_np=sample["body_poses_np"],
-                    smpl_pose_np=use_pose,
-                    body_quat_w=use_body_quat,
-                )
-
             if self.record_npz:
                 record_data = dict(numpy_data)
                 record_data["body_poses_np"] = np.asarray(
@@ -2663,11 +2716,12 @@ class PoseStreamer:
                 self.record_idx += 1
 
         self.step += 1
-        self.next_target_ns += step_ns
+        self.next_target_ns = target_ns_values[-1] + step_ns
         self.prev_stamp_ns = curr_stamp_ns
         self.prev_smpl_pose_np = smpl_pose_np
         self.prev_smpl_joints_np = smpl_joints_np
         self.prev_body_quat_np = body_quat_np
+        self.prev_body_poses_np = curr_body_poses_np
         self.fps_counter += 1
         current_time = time.time()
         if current_time - self.last_fps_report >= 5.0:

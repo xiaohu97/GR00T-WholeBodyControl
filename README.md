@@ -574,6 +574,13 @@ uv run python ./app/bvh_to_csv_converter.py \
 `--record_format soma_bvh` 直接生成可导入 SOMA 的 BVH；如果已录制 `.npz`，需要其中包含
 `body_poses_np`、`timestamp_ns` 等原始字段后再做离线导出。
 
+### USTC 人形重定向
+运行：
+
+```bash
+uv run python ./app/bvh_to_csv_converter.py     --config ./assets/humanoid_ultra_bvh_to_csv_converter_config.json     --viewer gl
+```
+
 ## 常见问题
 
 ### 1. `uv installation succeeded but binary not found on PATH`
